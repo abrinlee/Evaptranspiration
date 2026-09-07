@@ -164,7 +164,7 @@ the ET formula.
 `Europe/London`. It controls where the "day" boundary falls when hourly reports are
 aggregated. List of names: <https://en.wikipedia.org/wiki/List_of_tz_database_time_zones>.
 
-**NOAA token** from step 0, the email they sent you.
+**NOAA token** from the Requirements section, the one NOAA emailed you.
 
 ### 5. Write the config file
 
