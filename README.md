@@ -129,3 +129,7 @@ reflects one city's watering rules and one sprinkler system.
   behind your web server's auth if the host is reachable from outside.
 - Chart.js and its plugins load from jsDelivr. `context.md` describes hosting them
   locally if you need to.
+
+## License
+
+GPL-3.0. See `LICENSE`.
