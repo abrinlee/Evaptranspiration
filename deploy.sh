@@ -4,7 +4,9 @@
 #   sudo ./deploy.sh                # uses WEB_ROOT below
 #   sudo WEB_ROOT=/var/www/html ./deploy.sh
 #
-# historical_dashboard.html is intentionally not deployed; open it locally.
+# historical_dashboard.html is not deployed by this script (it is heavy). It must be
+# served from the same host as api/ because it fetches /api/ by absolute path; copy it
+# into WEB_ROOT by hand if you want it (see README, "Optional pieces").
 # The API reads credentials from /etc/weather-dashboard/config.ini (see README).
 
 set -e

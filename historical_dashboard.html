@@ -328,36 +328,54 @@ body {
 <script>
 const charts = {};
 
-const PERIODS = [
-  { label: '1999 Calendar Year',       start: '1999-01-01', end: '1999-12-31', color: '#ef4444', irrColor: '#fca5a5' },
-  { label: '2000 Calendar Year',       start: '2000-01-01', end: '2000-12-31', color: '#06b6d4', irrColor: '#67e8f9' },
-  { label: '2001 Calendar Year',       start: '2001-01-01', end: '2001-12-31', color: '#8b5cf6', irrColor: '#c4b5fd' },
-  { label: '2002 Calendar Year',       start: '2002-01-01', end: '2002-12-31', color: '#10b981', irrColor: '#6ee7b7' },
-  { label: '2003 Calendar Year',       start: '2003-01-01', end: '2003-12-31', color: '#f97316', irrColor: '#fdba74' },
-  { label: '2004 Calendar Year',       start: '2004-01-01', end: '2004-12-31', color: '#ec4899', irrColor: '#f9a8d4' },
-  { label: '2005 Calendar Year',       start: '2005-01-01', end: '2005-12-31', color: '#14b8a6', irrColor: '#5eead4' },
-  { label: '2006 Calendar Year',       start: '2006-01-01', end: '2006-12-31', color: '#6366f1', irrColor: '#a5b4fc' },
-  { label: '2007 Calendar Year',       start: '2007-01-01', end: '2007-12-31', color: '#eab308', irrColor: '#fde047' },
-  { label: '2008 Calendar Year',       start: '2008-01-01', end: '2008-12-31', color: '#3b82f6', irrColor: '#93c5fd' },
-  { label: '2009 Calendar Year',       start: '2009-01-01', end: '2009-12-31', color: '#d946ef', irrColor: '#f0abfc' },
-  { label: '2010 Calendar Year',       start: '2010-01-01', end: '2010-12-31', color: '#84cc16', irrColor: '#bef264' },
-  { label: '2011 Calendar Year',       start: '2011-01-01', end: '2011-12-31', color: '#f43f5e', irrColor: '#fda4af' },
-  { label: '2012 Calendar Year',       start: '2012-01-01', end: '2012-12-31', color: '#0ea5e9', irrColor: '#7dd3fc' },
-  { label: '2013 Calendar Year',       start: '2013-01-01', end: '2013-12-31', color: '#a855f7', irrColor: '#d8b4fe' },
-  { label: '2014 Calendar Year',       start: '2014-01-01', end: '2014-12-31', color: '#facc15', irrColor: '#fde68a' },
-  { label: '2015 Calendar Year',       start: '2015-01-01', end: '2015-12-31', color: '#2dd4bf', irrColor: '#5eead4' },
-  { label: '2016 Calendar Year',       start: '2016-01-01', end: '2016-12-31', color: '#818cf8', irrColor: '#a5b4fc' },
-  { label: '2017 Calendar Year',       start: '2017-01-01', end: '2017-12-31', color: '#f87171', irrColor: '#fca5a5' },
-  { label: '2018 Calendar Year',       start: '2018-01-01', end: '2018-12-31', color: '#4ade80', irrColor: '#86efac' },
-  { label: '2019 Calendar Year',       start: '2019-01-01', end: '2019-12-31', color: '#e879f9', irrColor: '#f0abfc' },
-  { label: '2020 Calendar Year',       start: '2020-01-01', end: '2020-12-31', color: '#22d3ee', irrColor: '#67e8f9' },
-  { label: '2021 Calendar Year',       start: '2021-01-01', end: '2021-12-31', color: '#60a5fa', irrColor: '#93c5fd' },
-  { label: '2022 Calendar Year',       start: '2022-01-01', end: '2022-12-31', color: '#34d399', irrColor: '#6ee7b7' },
-  { label: '2023 Calendar Year',       start: '2023-01-01', end: '2023-12-31', color: '#f59e0b', irrColor: '#fcd34d' },
-  { label: '2024 Calendar Year',       start: '2024-01-01', end: '2024-12-31', color: '#f472b6', irrColor: '#f9a8d4' },
-  { label: '2025 Calendar Year',       start: '2025-01-01', end: '2025-12-31', color: '#a78bfa', irrColor: '#c4b5fd' },
-  { label: '2026 Year to Date',         start: '2026-01-01', end: new Date().toISOString().slice(0, 10), color: '#fb923c', irrColor: '#fdba74' },
+// One period per calendar year from START_YEAR through the current year (shown as
+// year to date). Built on every load so it never goes stale in January.
+const START_YEAR = 1998;
+const PALETTE = [   // [line color, irrigation-line color], cycled by year
+  ['#ef4444', '#fca5a5'],
+  ['#06b6d4', '#67e8f9'],
+  ['#8b5cf6', '#c4b5fd'],
+  ['#10b981', '#6ee7b7'],
+  ['#f97316', '#fdba74'],
+  ['#ec4899', '#f9a8d4'],
+  ['#14b8a6', '#5eead4'],
+  ['#6366f1', '#a5b4fc'],
+  ['#eab308', '#fde047'],
+  ['#3b82f6', '#93c5fd'],
+  ['#d946ef', '#f0abfc'],
+  ['#84cc16', '#bef264'],
+  ['#f43f5e', '#fda4af'],
+  ['#0ea5e9', '#7dd3fc'],
+  ['#a855f7', '#d8b4fe'],
+  ['#facc15', '#fde68a'],
+  ['#2dd4bf', '#5eead4'],
+  ['#818cf8', '#a5b4fc'],
+  ['#f87171', '#fca5a5'],
+  ['#4ade80', '#86efac'],
+  ['#e879f9', '#f0abfc'],
+  ['#22d3ee', '#67e8f9'],
+  ['#60a5fa', '#93c5fd'],
+  ['#34d399', '#6ee7b7'],
+  ['#f59e0b', '#fcd34d'],
+  ['#f472b6', '#f9a8d4'],
+  ['#a78bfa', '#c4b5fd'],
+  ['#fb923c', '#fdba74']
 ];
+const PERIODS = [];
+{
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  for (let y = START_YEAR; y <= thisYear; y++) {
+    const [color, irrColor] = PALETTE[(y - START_YEAR) % PALETTE.length];
+    const isCurrent = y === thisYear;
+    PERIODS.push({
+      label: isCurrent ? `${y} Year to Date` : `${y} Calendar Year`,
+      start: `${y}-01-01`,
+      end:   isCurrent ? now.toISOString().slice(0, 10) : `${y}-12-31`,
+      color, irrColor
+    });
+  }
+}
 
 async function fetchHistoricalData(start, end) {
   const response = await fetch(`/api/et-history.php?start=${start}&end=${end}`);

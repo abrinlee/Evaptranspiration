@@ -859,7 +859,7 @@ All dependencies are loaded from `cdn.jsdelivr.net`:
 |---------|---------|---------|---------------|
 | Chart.js | 4.4.0 | Core charting library | https://www.chartjs.org/ |
 | chartjs-plugin-annotation | 3.0.1 | Annotation markers on charts | https://www.chartjs.org/chartjs-plugin-annotation/ |
-| Hammer.js | 2.0.8 | Touch gesture support (pan/zoom) | https://hammerjs.github.io/ |
+| Hammer.js | 2.0.8 | Gesture library required by the zoom plugin (not itself a Chart.js plugin) | https://hammerjs.github.io/ |
 | chartjs-plugin-zoom | 2.0.1 | Mouse wheel zoom functionality | https://www.chartjs.org/chartjs-plugin-zoom/ |
 
 ### Hosting Libraries Locally (Fallback)
@@ -882,7 +882,7 @@ sudo chown www-data:www-data *.js
 sudo chmod 644 *.js
 ```
 
-Then update `dashboard.html` script src paths (lines 530-533):
+Then update the four `<script src=` lines in `dashboard.html` (just above the `<script>` block that starts with `APP_VERSION`; the same four lines exist in `historical_dashboard.html`):
 ```html
 <script src="assets/js/chart.umd.min.js"></script>
 <script src="assets/js/chartjs-plugin-annotation.min.js"></script>

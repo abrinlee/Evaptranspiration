@@ -253,7 +253,9 @@ cd pipeline
 ```
 
 Answer `y` at the prompt if the report says `CLEAN`. To run unattended, add `--yes`;
-it commits only if the data is clean and refuses otherwise. Repeat for each year you
+it commits only if the data is clean and refuses otherwise. Backfill always writes a
+CSV of what it collected next to the script; the daily mode writes one too if you
+pass `--export`, which is handy for eyeballing a run without querying the database. Repeat for each year you
 want. NASA POWER solar data exists from 1984; ASOS hourly archives vary by station
 but most large airports go back to the mid-1990s. The historical dashboard is most
 interesting with at least a few years loaded.
@@ -285,8 +287,9 @@ pipeline/run_weather_collection.sh
 tail -3 pipeline/weather_collection.log
 ```
 
-A normal run prints the last ten days and `Complete - 365 days processed` in a few
-seconds. If you skipped the MQTT setup, the publisher step will print a connection
+A normal run prints the last ten days and `Complete - 365 days processed`. It
+usually finishes in well under a minute, depending on how quickly the IEM server
+returns a year of hourly data. If you skipped the MQTT setup, the publisher step will print a connection
 error and that is fine; the collector has already finished.
 
 ### 9. Deploy the web pages
@@ -411,8 +414,9 @@ for the field you want.
 
 ### Historical year-over-year dashboard
 
-`historical_dashboard.html` fetches every calendar year from 1999 to the current
-year on load and overlays them. It uses the same absolute `/api/` path, so it has to
+`historical_dashboard.html` fetches every calendar year from `START_YEAR` (1998 by
+default, set near the top of its script block) through the current year on load and
+overlays them. The list is generated each load, so it picks up a new year automatically. It uses the same absolute `/api/` path, so it has to
 be served from the same web server as the API; opening the file directly from disk
 will not work. `deploy.sh` leaves it out on purpose because it is heavy; copy it by
 hand if you want it on the server:
@@ -421,12 +425,13 @@ hand if you want it on the server:
 sudo install -o www-data -g www-data -m 644 historical_dashboard.html /var/www/html/
 ```
 
-Years with no data in the table simply show as empty lines. To change the range,
-edit the `PERIODS` array near the top of the script block.
+Years with no data in the table simply show as empty lines. Set `START_YEAR` to the
+first year you backfilled.
 
 ### Hosting Chart.js locally
 
-The pages load Chart.js 4.4.0 and three plugins from jsDelivr. If the server has no
+The pages load Chart.js 4.4.0, two Chart.js plugins (annotation and zoom), and
+Hammer.js, the gesture library the zoom plugin needs, all from jsDelivr. If the server has no
 outbound internet for browsers, download those four files into an `assets/js/`
 folder under the web root and change the four `<script src=` lines; the exact URLs
 are listed in `context.md` under "Dependencies".
