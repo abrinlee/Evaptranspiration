@@ -1,15 +1,52 @@
 # Evapotranspiration Dashboard
 
-A self-hosted landscape water-balance system for deciding when to irrigate.
+**Know whether your lawn actually needs water this week, from free public weather data, with no sensors in the yard.**
 
-Every night a Python job pulls hourly airport weather observations, official daily
-rainfall, and satellite-derived solar radiation for your location, computes FAO-56
-Penman-Monteith reference evapotranspiration (ET₀), and stores one row per day in
-MariaDB. A single-page web dashboard shows ET, rainfall, temperature, wind, humidity,
-solar radiation, and a cumulative rain-minus-ET water balance with a twice-weekly
-irrigation simulation. A second page compares every year on record.
+[![License: GPL-3.0](https://img.shields.io/github/license/abrinlee/Evaptranspiration)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/abrinlee/Evaptranspiration)](https://github.com/abrinlee/Evaptranspiration/commits/main)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![PHP 8.3](https://img.shields.io/badge/php-8.3-777bb4)
+![MariaDB](https://img.shields.io/badge/MariaDB-10.11-003545)
 
-Everything it consumes is free and public, so it runs for any location these cover:
+![Dashboard: sun position, cumulative ET balance with simulated irrigation, and 7/14/28-day ET](docs/images/dashboard-hero.png)
+
+## What it answers
+
+- **Should I run the sprinklers?** A running water balance of rain minus evapotranspiration, with a simulated twice-weekly schedule showing when a rule like "water when 1.25 in behind" would have fired.
+- **How much water has my landscape actually lost?** Daily FAO-56 Penman-Monteith reference ET₀, the same standard agricultural irrigation districts use, computed for your coordinates.
+- **Is this year unusual?** Every year on record overlaid on one chart, with rain, ET, deficit, and simulated irrigation totals side by side. The author's copy runs back to 1998.
+
+## Why you might want this
+
+- **No hardware.** Temperature, dewpoint, wind, and pressure come from the nearest airport's hourly reports. Rainfall comes from NOAA's official daily record. Solar radiation comes from NASA satellites. All free, all public, none of it needs an account except one free NOAA token.
+- **Works almost anywhere.** Any airport in the IEM archive, which covers the US and much of the world, and NASA POWER is global. Change six lines in a config file to move it.
+- **Decades of history in an afternoon.** The backfill mode pulls years of hourly data in polite 30-day chunks and validates each one before writing.
+- **Small and boring to run.** One Python script on a nightly cron, one MariaDB table, two PHP files, two HTML pages. It runs happily on a Raspberry Pi. No cloud, no framework, no build step. You own the data.
+- **Honest about what it is.** The ET math follows FAO-56 exactly and is documented equation by equation. The water balance is a reference-crop trend, not a soil-moisture model, and the README says so.
+
+## What you'll need
+
+A Linux box that stays on, about an hour, and a free NOAA token. The full walkthrough starts at [Install, step by step](#install-step-by-step).
+
+## Screenshots
+
+<details>
+<summary><b>Main dashboard, full page</b> (7/14/28-day ET, water balances, and 28 days of rain, temperature, solar, wind, humidity, pressure)</summary>
+
+![Full dashboard](docs/images/dashboard.png)
+
+</details>
+
+<details>
+<summary><b>Historical comparison</b> (every year overlaid by day of year, plus a sortable summary table)</summary>
+
+![Historical overlay chart](docs/images/historical-overlay.png)
+
+![Historical summary table](docs/images/historical.png)
+
+</details>
+
+## Data sources
 
 | Source | Provides | Coverage | Account needed |
 |---|---|---|---|
@@ -21,6 +58,7 @@ Everything it consumes is free and public, so it runs for any location these cov
 
 ## Contents
 
+0. [What it answers](#what-it-answers) · [Why you might want this](#why-you-might-want-this) · [Screenshots](#screenshots)
 1. [How it works](#how-it-works)
 2. [Requirements](#requirements)
 3. [Install, step by step](#install-step-by-step)
