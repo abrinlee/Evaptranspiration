@@ -1,0 +1,12 @@
+# secrets and local tool settings
+config.ini
+.claude/
+
+# runtime output from the pipeline (logs, --export CSVs, backfill CSVs)
+*.log
+*.csv
+*.xlsx
+__pycache__/
+
+# previous-version backups
+archive/

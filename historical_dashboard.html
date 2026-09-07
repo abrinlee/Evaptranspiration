@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<!--
+  Historical Evapotranspiration Comparison Dashboard
+  Compares cumulative ET balance and irrigation events across years
+  to validate ET model tuning parameters.
+
+  VERSION: 1.0.0
+  LAST UPDATED: 2026-08-09
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Historical ET Comparison</title>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  min-height: 100vh;
+  padding: 3vh 3vw;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top left, #1d283a 0, #020617 52%, #020617 65%, #000 100%);
+  color: #d8e1e8;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-title {
+  font-size: 2.2em;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #f0f4f8;
+  text-align: center;
+}
+
+.page-subtitle {
+  text-align: center;
+  color: #9fb3c8;
+  font-size: 0.95em;
+  margin-bottom: 25px;
+}
+
+.section-title {
+  text-align: center;
+  color: #9fb3c8;
+  font-size: 1.2em;
+  margin: 30px 0 15px 0;
+  font-weight: 500;
+}
+
+.cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
+  max-width: 1800px;
+  margin: 0 auto 20px auto;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+}
+
+.card-wide {
+  grid-column: 1 / -1;
+}
+
+.card-title {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: #f0f4f8;
+  text-align: center;
+}
+
+.chart-container {
+  position: relative;
+  height: 350px;
+  margin-top: 14px;
+}
+
+.chart-container-tall {
+  height: 450px;
+}
+
+.loading {
+  text-align: center;
+  padding: 30px;
+  color: #9fb3c8;
+  font-size: 0.95em;
+}
+
+.error {
+  text-align: center;
+  padding: 30px;
+  color: #ff6b6b;
+  font-size: 0.95em;
+}
+
+.stats-container {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-label {
+  color: #9fb3c8;
+  font-size: 0.75em;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  color: #e8f1f8;
+  font-weight: 600;
+  font-size: 1.0em;
+}
+
+.summary-table-wrap {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.summary-table th, .summary-table td {
+  padding: 10px 14px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.summary-table th {
+  color: #9fb3c8;
+  font-weight: 500;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+
+.summary-table th:hover {
+  color: #60a5fa;
+}
+
+.summary-table th .sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.75em;
+  opacity: 0.4;
+}
+
+.summary-table th.sort-active .sort-arrow {
+  opacity: 1;
+  color: #60a5fa;
+}
+
+.summary-table td {
+  color: #e8f1f8;
+  font-weight: 600;
+}
+
+.summary-table tr:hover td {
+  background: rgba(255,255,255,0.03);
+}
+
+.summary-table .period-label {
+  text-align: left;
+  color: #f0f4f8;
+}
+
+.chart-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.chart-action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #9fb3c8;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #60a5fa;
+  transform: translateY(-1px);
+}
+
+.page-footer {
+  margin-top: 25px;
+  font-size: 0.85em;
+  color: #8092a3;
+  text-align: center;
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .cards-container { grid-template-columns: 1fr; }
+  .page-title { font-size: 1.8em; }
+  .stats-container { grid-template-columns: repeat(3, 1fr); }
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+
+  <div class="page-title">Historical ET Comparison</div>
+  <div class="page-subtitle">Cumulative evapotranspiration balance and irrigation simulation across periods — validating ET model parameters</div>
+
+  <!-- OVERLAY COMPARISON CHART -->
+  <div class="section-title">All Periods Overlaid (Day of Year)</div>
+  <div class="cards-container">
+    <div class="card card-wide">
+      <div class="card-title">Cumulative ET Balance — All Periods</div>
+      <div id="loadingOverlay" class="loading">Loading historical data...</div>
+      <div id="errorOverlay" class="error" style="display: none;"></div>
+      <div id="chartOverlaySection" style="display: none;">
+        <div class="chart-container chart-container-tall"><canvas id="chartOverlay"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('overlay')">CSV</button>
+          <button class="chart-action-btn" onclick="printChart('overlay')">Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUMMARY TABLE -->
+  <div class="section-title">Summary Comparison</div>
+  <div class="cards-container">
+    <div class="card card-wide">
+      <div class="card-title">Irrigation & Weather Summary</div>
+      <div id="loadingSummary" class="loading">Loading...</div>
+      <div id="summarySection" style="display: none;">
+        <div class="summary-table-wrap">
+          <table class="summary-table" id="summaryTable">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Total Precip (in)</th>
+                <th>Total ET (in)</th>
+                <th>Final Balance (in)</th>
+                <th>Low Point (in)</th>
+                <th>Irrigation (in)</th>
+                <th>Single Runs</th>
+                <th>Double Runs</th>
+                <th>Total Water Days</th>
+                <th>Avg Temp (F)</th>
+                <th>Avg Wind (mph)</th>
+                <th>Avg Solar (MJ)</th>
+              </tr>
+            </thead>
+            <tbody id="summaryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATISTICS TABLE -->
+  <div class="cards-container">
+    <div class="card card-wide">
+      <div class="card-title">Statistical Summary</div>
+      <div id="statsTableSection" style="display: none;">
+        <div class="summary-table-wrap">
+          <table class="summary-table" id="statsTable">
+            <thead>
+              <tr>
+                <th>Statistic</th>
+                <th>Total Precip (in)</th>
+                <th>Total ET (in)</th>
+                <th>Final Balance (in)</th>
+                <th>Low Point (in)</th>
+                <th>Irrigation (in)</th>
+                <th>Single Runs</th>
+                <th>Double Runs</th>
+                <th>Total Water Days</th>
+                <th>Avg Temp (F)</th>
+                <th>Avg Wind (mph)</th>
+                <th>Avg Solar (MJ)</th>
+              </tr>
+            </thead>
+            <tbody id="statsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INDIVIDUAL YEAR CARDS -->
+  <div class="section-title">Individual Period Details</div>
+  <div class="cards-container" id="yearCards"></div>
+
+  <div class="page-footer">
+    Historical ET Comparison Dashboard v1.0.0 — Data from KDFW ASOS via FAO-56 Penman-Monteith
+  </div>
+
+<script>
+const charts = {};
+
+const PERIODS = [
+  { label: '1999 Calendar Year',       start: '1999-01-01', end: '1999-12-31', color: '#ef4444', irrColor: '#fca5a5' },
+  { label: '2000 Calendar Year',       start: '2000-01-01', end: '2000-12-31', color: '#06b6d4', irrColor: '#67e8f9' },
+  { label: '2001 Calendar Year',       start: '2001-01-01', end: '2001-12-31', color: '#8b5cf6', irrColor: '#c4b5fd' },
+  { label: '2002 Calendar Year',       start: '2002-01-01', end: '2002-12-31', color: '#10b981', irrColor: '#6ee7b7' },
+  { label: '2003 Calendar Year',       start: '2003-01-01', end: '2003-12-31', color: '#f97316', irrColor: '#fdba74' },
+  { label: '2004 Calendar Year',       start: '2004-01-01', end: '2004-12-31', color: '#ec4899', irrColor: '#f9a8d4' },
+  { label: '2005 Calendar Year',       start: '2005-01-01', end: '2005-12-31', color: '#14b8a6', irrColor: '#5eead4' },
+  { label: '2006 Calendar Year',       start: '2006-01-01', end: '2006-12-31', color: '#6366f1', irrColor: '#a5b4fc' },
+  { label: '2007 Calendar Year',       start: '2007-01-01', end: '2007-12-31', color: '#eab308', irrColor: '#fde047' },
+  { label: '2008 Calendar Year',       start: '2008-01-01', end: '2008-12-31', color: '#3b82f6', irrColor: '#93c5fd' },
+  { label: '2009 Calendar Year',       start: '2009-01-01', end: '2009-12-31', color: '#d946ef', irrColor: '#f0abfc' },
+  { label: '2010 Calendar Year',       start: '2010-01-01', end: '2010-12-31', color: '#84cc16', irrColor: '#bef264' },
+  { label: '2011 Calendar Year',       start: '2011-01-01', end: '2011-12-31', color: '#f43f5e', irrColor: '#fda4af' },
+  { label: '2012 Calendar Year',       start: '2012-01-01', end: '2012-12-31', color: '#0ea5e9', irrColor: '#7dd3fc' },
+  { label: '2013 Calendar Year',       start: '2013-01-01', end: '2013-12-31', color: '#a855f7', irrColor: '#d8b4fe' },
+  { label: '2014 Calendar Year',       start: '2014-01-01', end: '2014-12-31', color: '#facc15', irrColor: '#fde68a' },
+  { label: '2015 Calendar Year',       start: '2015-01-01', end: '2015-12-31', color: '#2dd4bf', irrColor: '#5eead4' },
+  { label: '2016 Calendar Year',       start: '2016-01-01', end: '2016-12-31', color: '#818cf8', irrColor: '#a5b4fc' },
+  { label: '2017 Calendar Year',       start: '2017-01-01', end: '2017-12-31', color: '#f87171', irrColor: '#fca5a5' },
+  { label: '2018 Calendar Year',       start: '2018-01-01', end: '2018-12-31', color: '#4ade80', irrColor: '#86efac' },
+  { label: '2019 Calendar Year',       start: '2019-01-01', end: '2019-12-31', color: '#e879f9', irrColor: '#f0abfc' },
+  { label: '2020 Calendar Year',       start: '2020-01-01', end: '2020-12-31', color: '#22d3ee', irrColor: '#67e8f9' },
+  { label: '2021 Calendar Year',       start: '2021-01-01', end: '2021-12-31', color: '#60a5fa', irrColor: '#93c5fd' },
+  { label: '2022 Calendar Year',       start: '2022-01-01', end: '2022-12-31', color: '#34d399', irrColor: '#6ee7b7' },
+  { label: '2023 Calendar Year',       start: '2023-01-01', end: '2023-12-31', color: '#f59e0b', irrColor: '#fcd34d' },
+  { label: '2024 Calendar Year',       start: '2024-01-01', end: '2024-12-31', color: '#f472b6', irrColor: '#f9a8d4' },
+  { label: '2025 Calendar Year',       start: '2025-01-01', end: '2025-12-31', color: '#a78bfa', irrColor: '#c4b5fd' },
+  { label: '2026 Year to Date',         start: '2026-01-01', end: new Date().toISOString().slice(0, 10), color: '#fb923c', irrColor: '#fdba74' },
+];
+
+async function fetchHistoricalData(start, end) {
+  const response = await fetch(`/api/et-history.php?start=${start}&end=${end}`);
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.error || 'Failed to fetch data');
+  return result.data;
+}
+
+function simulateIrrigation(data) {
+  let cumNatural = 0;
+  let cumIrr = 0;
+  let totalIrrigation = 0;
+  let singleRunDays = 0;
+  let doubleRunDays = 0;
+  const naturalValues = [];
+  const irrValues = [];
+  const irrRuns = [];
+
+  data.forEach(d => {
+    const dow = new Date(d.date + 'T12:00:00').getDay();
+    const daily = d.precipitation - d.et;
+
+    cumNatural += daily;
+    naturalValues.push(cumNatural);
+
+    cumIrr += daily;
+    let runs = 0;
+    if (dow === 1 || dow === 4) {
+      if (cumIrr <= -1.25) { cumIrr += 1.0; runs++; totalIrrigation += 1.0; }
+      if (cumIrr <= -1.25) { cumIrr += 1.0; runs++; totalIrrigation += 1.0; }
+    }
+    if (runs === 1) singleRunDays++;
+    if (runs === 2) doubleRunDays++;
+    irrValues.push(cumIrr);
+    irrRuns.push(runs);
+  });
+
+  const totalPrecip = data.reduce((a, b) => a + b.precipitation, 0);
+  const totalET = data.reduce((a, b) => a + b.et, 0);
+  const avgTemp = data.reduce((a, b) => a + b.temp_avg, 0) / data.length;
+  const avgWind = data.reduce((a, b) => a + b.wind_speed, 0) / data.length;
+  const avgSolar = data.reduce((a, b) => a + b.solar_radiation, 0) / data.length;
+
+  return {
+    naturalValues,
+    irrValues,
+    irrRuns,
+    totalPrecip,
+    totalET,
+    finalBalance: cumNatural,
+    lowPoint: Math.min(...naturalValues),
+    totalIrrigation,
+    singleRunDays,
+    doubleRunDays,
+    avgTemp,
+    avgWind,
+    avgSolar
+  };
+}
+
+function getDayOfPeriod(dateStr, periodStart) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const s = new Date(periodStart + 'T12:00:00');
+  return Math.round((d - s) / 86400000);
+}
+
+async function init() {
+  const allResults = [];
+
+  try {
+    const fetches = PERIODS.map(p => fetchHistoricalData(p.start, p.end));
+    const allData = await Promise.all(fetches);
+
+    for (let i = 0; i < PERIODS.length; i++) {
+      const period = PERIODS[i];
+      const data = allData[i];
+      const sim = simulateIrrigation(data);
+      allResults.push({ period, data, sim });
+    }
+
+    createOverlayChart(allResults);
+    createSummaryTable(allResults);
+    createStatsTable(allResults);
+    createYearCards(allResults);
+
+  } catch (error) {
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('errorOverlay').style.display = 'block';
+    document.getElementById('errorOverlay').textContent = 'Error: ' + error.message;
+    console.error('Init error:', error);
+  }
+}
+
+function createOverlayChart(allResults) {
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.getElementById('chartOverlaySection').style.display = 'block';
+
+  const datasets = [];
+
+  allResults.forEach(({ period, data, sim }) => {
+    const dayLabels = data.map((d, i) => i);
+
+    datasets.push({
+      label: period.label + ' (Natural)',
+      data: dayLabels.map((day, i) => ({ x: day, y: sim.naturalValues[i] })),
+      borderColor: period.color,
+      borderWidth: 2.5,
+      fill: false,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointBackgroundColor: period.color
+    });
+
+    datasets.push({
+      label: period.label + ' (+ Irrigation)',
+      data: dayLabels.map((day, i) => ({ x: day, y: sim.irrValues[i] })),
+      borderColor: period.irrColor,
+      borderWidth: 1.5,
+      borderDash: [5, 3],
+      fill: false,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 3,
+      pointBackgroundColor: period.irrColor
+    });
+  });
+
+  const ctx = document.getElementById('chartOverlay').getContext('2d');
+  charts['overlay'] = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'nearest',
+        axis: 'x',
+        intersect: false
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            color: '#9fb3c8',
+            font: { size: 11 },
+            boxWidth: 20,
+            padding: 12,
+            filter: function(item) {
+              return !item.text.includes('Irrigation');
+            }
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          titleColor: '#f0f4f8',
+          bodyColor: '#d8e1e8',
+          borderColor: 'rgba(255, 255, 255, 0.1)',
+          borderWidth: 1,
+          padding: 12,
+          displayColors: true,
+          callbacks: {
+            title: function(items) {
+              if (!items.length) return '';
+              return 'Day ' + Math.round(items[0].parsed.x);
+            },
+            label: function(context) {
+              const value = context.parsed.y;
+              return context.dataset.label + ': ' + (value >= 0 ? '+' : '') + value.toFixed(3) + ' in';
+            }
+          }
+        },
+        annotation: { annotations: {} },
+        zoom: {
+          zoom: {
+            wheel: { enabled: true, speed: 0.1 },
+            pinch: { enabled: true },
+            mode: 'xy'
+          },
+          pan: {
+            enabled: true,
+            mode: 'xy',
+            modifierKey: 'ctrl'
+          },
+          limits: {
+            x: { min: 'original', max: 'original' },
+            y: { min: 'original', max: 'original' }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          title: {
+            display: true,
+            text: 'Day of Period',
+            color: '#9fb3c8',
+            font: { size: 12 }
+          },
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: {
+            color: '#9fb3c8',
+            font: { size: 10 },
+            stepSize: 30,
+            callback: function(value) { return 'Day ' + value; }
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Cumulative Balance (inches)',
+            color: '#9fb3c8',
+            font: { size: 12 }
+          },
+          grid: {
+            color: function(context) {
+              return context.tick.value === 0 ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+            },
+            lineWidth: function(context) {
+              return context.tick.value === 0 ? 2 : 1;
+            }
+          },
+          ticks: {
+            color: '#9fb3c8',
+            font: { size: 10 },
+            callback: function(value) {
+              return (value >= 0 ? '+' : '') + value.toFixed(1) + '"';
+            }
+          }
+        }
+      }
+    }
+  });
+
+  document.getElementById('chartOverlay').addEventListener('dblclick', () => {
+    charts['overlay'].resetZoom();
+  });
+}
+
+let summarySort = { col: null, asc: true };
+
+function createSummaryTable(allResults) {
+  document.getElementById('loadingSummary').style.display = 'none';
+  document.getElementById('summarySection').style.display = 'block';
+
+  const thead = document.querySelector('#summaryTable thead tr');
+  Array.from(thead.children).forEach((th, i) => {
+    if (!th.querySelector('.sort-arrow')) {
+      th.innerHTML += '<span class="sort-arrow">▲</span>';
+    }
+    th.onclick = () => sortSummaryTable(i);
+  });
+
+  renderSummaryRows(allResults);
+}
+
+function renderSummaryRows(allResults) {
+  const tbody = document.getElementById('summaryBody');
+  tbody.innerHTML = '';
+
+  allResults.forEach(({ period, sim }) => {
+    const tr = document.createElement('tr');
+    const cols = [
+      { sort: period.start, html: `<td class="period-label" style="color: ${period.color}">${period.label}</td>` },
+      { sort: sim.totalPrecip, html: `<td>${sim.totalPrecip.toFixed(2)}</td>` },
+      { sort: sim.totalET, html: `<td>${sim.totalET.toFixed(2)}</td>` },
+      { sort: sim.finalBalance, html: `<td>${(sim.finalBalance >= 0 ? '+' : '') + sim.finalBalance.toFixed(2)}</td>` },
+      { sort: sim.lowPoint, html: `<td>${sim.lowPoint.toFixed(2)}</td>` },
+      { sort: sim.totalIrrigation, html: `<td>${sim.totalIrrigation.toFixed(0)}</td>` },
+      { sort: sim.singleRunDays, html: `<td>${sim.singleRunDays}</td>` },
+      { sort: sim.doubleRunDays, html: `<td>${sim.doubleRunDays}</td>` },
+      { sort: sim.singleRunDays + sim.doubleRunDays, html: `<td>${sim.singleRunDays + sim.doubleRunDays}</td>` },
+      { sort: sim.avgTemp, html: `<td>${sim.avgTemp.toFixed(1)}</td>` },
+      { sort: sim.avgWind, html: `<td>${sim.avgWind.toFixed(1)}</td>` },
+      { sort: sim.avgSolar, html: `<td>${sim.avgSolar.toFixed(1)}</td>` },
+    ];
+    tr._sortData = cols.map(c => c.sort);
+    tr.innerHTML = cols.map(c => c.html).join('');
+    tbody.appendChild(tr);
+  });
+}
+
+function sortSummaryTable(colIndex) {
+  if (summarySort.col === colIndex) {
+    summarySort.asc = !summarySort.asc;
+  } else {
+    summarySort.col = colIndex;
+    summarySort.asc = true;
+  }
+
+  const thead = document.querySelector('#summaryTable thead tr');
+  Array.from(thead.children).forEach((th, i) => {
+    const arrow = th.querySelector('.sort-arrow');
+    if (i === colIndex) {
+      th.classList.add('sort-active');
+      arrow.textContent = summarySort.asc ? '▲' : '▼';
+    } else {
+      th.classList.remove('sort-active');
+      arrow.textContent = '▲';
+    }
+  });
+
+  const tbody = document.getElementById('summaryBody');
+  const rows = Array.from(tbody.rows);
+  rows.sort((a, b) => {
+    let va = a._sortData[colIndex];
+    let vb = b._sortData[colIndex];
+    if (typeof va === 'string') return summarySort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return summarySort.asc ? va - vb : vb - va;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+
+function createStatsTable(allResults) {
+  document.getElementById('statsTableSection').style.display = 'block';
+
+  const extract = fn => allResults.map(({ sim }) => fn(sim));
+  const columns = [
+    extract(s => s.totalPrecip),
+    extract(s => s.totalET),
+    extract(s => s.finalBalance),
+    extract(s => s.lowPoint),
+    extract(s => s.totalIrrigation),
+    extract(s => s.singleRunDays),
+    extract(s => s.doubleRunDays),
+    extract(s => s.singleRunDays + s.doubleRunDays),
+    extract(s => s.avgTemp),
+    extract(s => s.avgWind),
+    extract(s => s.avgSolar),
+  ];
+  const decimals = [2, 2, 2, 2, 0, 0, 0, 0, 1, 1, 1];
+
+  const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const stdev = arr => {
+    const m = mean(arr);
+    return Math.sqrt(arr.reduce((sum, v) => sum + (v - m) ** 2, 0) / arr.length);
+  };
+
+  const statRows = [
+    { label: 'Min',    fn: arr => Math.min(...arr) },
+    { label: 'Max',    fn: arr => Math.max(...arr) },
+    { label: 'Mean',   fn: arr => mean(arr) },
+    { label: 'Std Dev', fn: arr => stdev(arr) },
+  ];
+
+  const tbody = document.getElementById('statsBody');
+  tbody.innerHTML = '';
+
+  statRows.forEach(({ label, fn }) => {
+    const tr = document.createElement('tr');
+    let html = `<td class="period-label">${label}</td>`;
+    columns.forEach((col, i) => {
+      html += `<td>${fn(col).toFixed(decimals[i])}</td>`;
+    });
+    tr.innerHTML = html;
+    tbody.appendChild(tr);
+  });
+}
+
+function createYearCards(allResults) {
+  const container = document.getElementById('yearCards');
+  container.innerHTML = '';
+
+  allResults.forEach(({ period, data, sim }, idx) => {
+    const cardId = 'year' + idx;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-title" style="color: ${period.color}">${period.label}</div>
+      <div class="chart-container"><canvas id="chart${cardId}"></canvas></div>
+      <div class="chart-actions">
+        <button class="chart-action-btn" onclick="exportCSV('${cardId}')">CSV</button>
+        <button class="chart-action-btn" onclick="printChart('${cardId}')">Print</button>
+      </div>
+      <div class="stats-container">
+        <div class="stat-item"><div class="stat-label">Final Balance</div><div class="stat-value">${(sim.finalBalance >= 0 ? '+' : '') + sim.finalBalance.toFixed(3)} in</div></div>
+        <div class="stat-item"><div class="stat-label">P / ET Total</div><div class="stat-value">P:${sim.totalPrecip.toFixed(2)} E:${sim.totalET.toFixed(2)}</div></div>
+        <div class="stat-item"><div class="stat-label">Low Point</div><div class="stat-value">${sim.lowPoint.toFixed(3)} in</div></div>
+        <div class="stat-item"><div class="stat-label">Irrigation Total</div><div class="stat-value">${sim.totalIrrigation.toFixed(0)} in</div></div>
+        <div class="stat-item"><div class="stat-label">Watering Days</div><div class="stat-value">${sim.singleRunDays} x1, ${sim.doubleRunDays} x2</div></div>
+      </div>
+    `;
+    container.appendChild(card);
+
+    const dates = data.map(d => {
+      const date = new Date(d.date + 'T12:00:00');
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+
+    const irrPointRadius = sim.irrRuns.map(r => r > 0 ? 4 : 0);
+    const irrPointBg = sim.irrRuns.map(r => r === 2 ? '#f59e0b' : r === 1 ? '#34d399' : 'transparent');
+    const irrPointBorder = sim.irrRuns.map(r => r === 2 ? '#d97706' : r === 1 ? '#059669' : 'transparent');
+
+    const ctx = document.getElementById(`chart${cardId}`).getContext('2d');
+    charts[cardId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'ET Balance',
+          data: sim.naturalValues,
+          borderColor: period.color,
+          borderWidth: 2,
+          fill: true,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const { ctx, chartArea } = chart;
+            if (!chartArea) return null;
+            const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+            const yScale = chart.scales.y;
+            const zeroPixel = yScale.getPixelForValue(0);
+            const topPixel = chartArea.top;
+            const bottomPixel = chartArea.bottom;
+            const range = bottomPixel - topPixel;
+            if (zeroPixel <= topPixel) {
+              gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+              gradient.addColorStop(1, 'rgba(239, 68, 68, 0.1)');
+            } else if (zeroPixel >= bottomPixel) {
+              gradient.addColorStop(0, 'rgba(34, 197, 94, 0.1)');
+              gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');
+            } else {
+              const zeroPosition = (bottomPixel - zeroPixel) / range;
+              gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+              gradient.addColorStop(zeroPosition - 0.01, 'rgba(239, 68, 68, 0.1)');
+              gradient.addColorStop(zeroPosition + 0.01, 'rgba(34, 197, 94, 0.1)');
+              gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');
+            }
+            return gradient;
+          },
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          pointBackgroundColor: period.color,
+          pointBorderColor: period.color,
+          pointBorderWidth: 1
+        },
+        {
+          label: 'ET Balance + Irrigation',
+          data: sim.irrValues,
+          borderColor: period.irrColor,
+          borderWidth: 2,
+          borderDash: [6, 3],
+          fill: false,
+          tension: 0.4,
+          pointRadius: irrPointRadius,
+          pointHoverRadius: sim.irrRuns.map(r => r > 0 ? 6 : 3),
+          pointBackgroundColor: irrPointBg,
+          pointBorderColor: irrPointBorder,
+          pointBorderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: '#9fb3c8',
+              usePointStyle: false,
+              font: { size: 11 },
+              generateLabels: function(chart) {
+                const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                labels.push({
+                  text: '1 run',
+                  fillStyle: '#34d399',
+                  strokeStyle: '#059669',
+                  lineWidth: 2,
+                  hidden: false,
+                  pointStyle: 'circle'
+                });
+                labels.push({
+                  text: '2 runs',
+                  fillStyle: '#f59e0b',
+                  strokeStyle: '#d97706',
+                  lineWidth: 2,
+                  hidden: false,
+                  pointStyle: 'circle'
+                });
+                return labels;
+              }
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f0f4f8',
+            bodyColor: '#d8e1e8',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            padding: 10,
+            displayColors: true,
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y;
+                let label = context.dataset.label + ': ' + (value >= 0 ? '+' : '') + value.toFixed(3) + ' in';
+                if (context.datasetIndex === 1) {
+                  const runs = sim.irrRuns[context.dataIndex];
+                  if (runs > 0) label += ' (' + runs + ' irrigation run' + (runs > 1 ? 's' : '') + ')';
+                }
+                return label;
+              }
+            }
+          },
+          annotation: { annotations: {} },
+          zoom: {
+            zoom: {
+              wheel: { enabled: true, speed: 0.1 },
+              pinch: { enabled: true },
+              mode: 'xy'
+            },
+            pan: {
+              enabled: true,
+              mode: 'xy',
+              modifierKey: 'ctrl'
+            },
+            limits: {
+              x: { min: 'original', max: 'original' },
+              y: { min: 'original', max: 'original' }
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: {
+              color: function(context) {
+                return context.tick.value === 0 ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+              },
+              lineWidth: function(context) {
+                return context.tick.value === 0 ? 2 : 1;
+              }
+            },
+            ticks: {
+              color: '#9fb3c8',
+              font: { size: 10 },
+              callback: function(value) {
+                return (value >= 0 ? '+' : '') + value.toFixed(2) + '"';
+              }
+            }
+          },
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              color: '#9fb3c8',
+              font: { size: 9 },
+              maxRotation: 45,
+              minRotation: 45,
+              autoSkip: true,
+              maxTicksLimit: 12
+            }
+          }
+        }
+      }
+    });
+
+    document.getElementById(`chart${cardId}`).addEventListener('dblclick', () => {
+      charts[cardId].resetZoom();
+    });
+  });
+}
+
+function exportCSV(chartId) {
+  const chart = charts[chartId];
+  if (!chart) return;
+
+  let csv = '';
+  if (chartId === 'overlay') {
+    const headers = ['Day'];
+    chart.data.datasets.forEach(ds => headers.push(ds.label));
+    csv = headers.join(',') + '\n';
+
+    const maxLen = Math.max(...chart.data.datasets.map(ds => ds.data.length));
+    for (let i = 0; i < maxLen; i++) {
+      const row = [i];
+      chart.data.datasets.forEach(ds => {
+        row.push(ds.data[i] ? ds.data[i].y.toFixed(4) : '');
+      });
+      csv += row.join(',') + '\n';
+    }
+  } else {
+    const labels = chart.data.labels;
+    const headers = ['Date'];
+    chart.data.datasets.forEach(ds => headers.push(ds.label));
+    csv = headers.join(',') + '\n';
+    for (let i = 0; i < labels.length; i++) {
+      const row = [labels[i]];
+      chart.data.datasets.forEach(ds => {
+        row.push(ds.data[i] !== undefined ? ds.data[i].toFixed(4) : '');
+      });
+      csv += row.join(',') + '\n';
+    }
+  }
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `et_historical_${chartId}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function printChart(chartId) {
+  const chart = charts[chartId];
+  if (!chart) return;
+  const dataURL = chart.toBase64Image();
+  const win = window.open('', '_blank');
+  win.document.write(`<html><head><title>ET Historical - ${chartId}</title></head><body style="text-align:center;background:#111;"><img src="${dataURL}" style="max-width:100%;margin:20px auto;"><script>window.print();<\/script></body></html>`);
+  win.document.close();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+
+</body>
+</html>

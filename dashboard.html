@@ -1,0 +1,2123 @@
+<!DOCTYPE html>
+<!--
+  Weather & Evapotranspiration Dashboard
+
+  VERSION: see APP_VERSION constant in <script>
+  LAST UPDATED: 2026-08-09
+
+  IMPORTANT: When making changes to this file, update APP_VERSION in the <script> block:
+  - Major changes (new features, breaking changes): increment first number (1.0.0 -> 2.0.0)
+  - Minor changes (enhancements, bug fixes): increment second number (1.0.0 -> 1.1.0)
+  - Patches (small fixes, typos): increment third number (1.0.0 -> 1.0.1)
+
+  CHANGELOG:
+  - v1.5.0 (2026-08-09): Added "ET Balance + Irrigation" simulated line to Cumulative ET Balance card -
+    models Mon/Thu watering schedule with 1.25" deficit trigger, max 2 runs of 1" each per watering day,
+    colored dot markers for single-run (green) vs double-run (amber) days
+  - v1.4.1 (2026-08-01): Fixed analemma card - use constant standard-time offset for a true analemma curve,
+    corrected equinox crosshair to use clock-noon altitude, hide due-south line when off-scale,
+    relabeled "Noon Altitude" to "Altitude" with solar noon readout, fixed dayOfYear DST edge case
+  - v1.4.0 (2026-06-07): Added "Sun Position" analemma card - sun's noon sky position (altitude/azimuth)
+    at clock-noon for the configured site, DST-aware, with today's marker + direction leader
+  - v1.3.1 (2025-12-06): Simplified exports - removed PDF (Print dialog handles PDF via browser)
+  - v1.3.0 (2025-12-06): Added export features - CSV, PDF, and Print for all charts
+  - v1.2.1 (2025-12-06): Added double-click to reset zoom on all charts
+  - v1.2.0 (2025-12-06): Added Hammer.js library - REQUIRED for pan/drag functionality
+  - v1.1.1 (2025-12-06): Improved event handling - robust modifier key detection for panning
+  - v1.1.0 (2025-12-06): Fixed Ctrl+click-drag panning conflict with annotation modal
+  - v1.0.0 (Initial): Base dashboard with ET charts, weather metrics, and annotations
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Weather & ET Dashboard</title>
+
+<style>
+/* ---------------- GLOBAL ---------------- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  padding: 3vh 3vw;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top left, #1d283a 0, #020617 52%, #020617 65%, #000 100%);
+  color: #d8e1e8;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-title {
+  font-size: 2.2em;
+  font-weight: 600;
+  margin-bottom: 25px;
+  color: #f0f4f8;
+  text-align: center;
+}
+
+.section-title {
+  text-align: center;
+  color: #9fb3c8;
+  font-size: 1.2em;
+  margin: 25px 0 15px 0;
+  font-weight: 500;
+}
+
+.cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  max-width: 1600px;
+  margin: 0 auto 20px auto;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+}
+
+.card-title {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: #f0f4f8;
+  text-align: center;
+}
+
+.chart-container {
+  position: relative;
+  height: 280px;
+  margin-top: 14px;
+}
+
+.chart-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.chart-action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #9fb3c8;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #60a5fa;
+  transform: translateY(-1px);
+}
+
+.loading {
+  text-align: center;
+  padding: 30px;
+  color: #9fb3c8;
+  font-size: 0.95em;
+}
+
+.error {
+  text-align: center;
+  padding: 30px;
+  color: #ff6b6b;
+  font-size: 0.95em;
+}
+
+.stats-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-label {
+  color: #9fb3c8;
+  font-size: 0.75em;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  color: #e8f1f8;
+  font-weight: 600;
+  font-size: 1.1em;
+}
+
+.page-footer {
+  margin-top: 25px;
+  font-size: 0.85em;
+  color: #8092a3;
+  text-align: center;
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .cards-container {
+    grid-template-columns: 1fr;
+  }
+  .page-title {
+    font-size: 1.8em;
+  }
+}
+
+/* ---------------- ANALEMMA (SUN POSITION) ---------------- */
+.sun-container {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+  max-width: 1600px;
+  margin: 0 auto 20px auto;
+  padding: 0 10px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .sun-container {
+    grid-template-columns: 1fr;
+    max-width: 360px;
+  }
+}
+
+.analemma-card {
+  text-align: center;
+}
+
+.analemma-card .subtitle {
+  font-size: 0.8em;
+  color: #9fb3c8;
+  margin-bottom: 8px;
+}
+
+.analemma-wrap {
+  position: relative;
+  width: 200px;
+  margin: 6px auto 4px;
+}
+
+#analemma {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* current-position dot pulse */
+@keyframes sunPulse {
+  0%, 100% { r: 4.2; opacity: 1; }
+  50%      { r: 5.2; opacity: 0.85; }
+}
+#nowDot {
+  animation: sunPulse 2.8s ease-in-out infinite;
+  transform-box: fill-box;
+}
+
+.analemma-dateline {
+  margin-top: 6px;
+  font-size: 0.9em;
+  color: #d8e1e8;
+}
+
+.analemma-readout {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-around;
+  font-size: 0.75em;
+  color: #9fb3c8;
+}
+.analemma-readout .val {
+  display: block;
+  font-size: 1.3em;
+  font-weight: 600;
+  color: #f4d35e;
+  margin-top: 2px;
+}
+
+.analemma-sub {
+  margin-top: 8px;
+  font-size: 0.72em;
+  color: #8092a3;
+}
+
+/* ---------------- ANNOTATION MODAL ---------------- */
+.annotation-modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.annotation-modal.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotation-modal-content {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  padding: 25px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.annotation-modal-header {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-bottom: 15px;
+  color: #f0f4f8;
+}
+
+.annotation-modal-info {
+  color: #9fb3c8;
+  font-size: 0.9em;
+  margin-bottom: 15px;
+}
+
+.annotation-modal-input {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 15px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #f0f4f8;
+  font-size: 1em;
+  font-family: inherit;
+}
+
+.annotation-modal-input:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.annotation-modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.annotation-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.annotation-btn-save {
+  background: rgba(96, 165, 250, 1);
+  color: white;
+}
+
+.annotation-btn-save:hover {
+  background: rgba(59, 130, 246, 1);
+  transform: translateY(-1px);
+}
+
+.annotation-btn-delete {
+  background: rgba(239, 68, 68, 0.8);
+  color: white;
+}
+
+.annotation-btn-delete:hover {
+  background: rgba(220, 38, 38, 1);
+  transform: translateY(-1px);
+}
+
+.annotation-btn-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: #d8e1e8;
+}
+
+.annotation-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+
+  <!-- Annotation Modal -->
+  <div id="annotationModal" class="annotation-modal">
+    <div class="annotation-modal-content">
+      <div class="annotation-modal-header">Add Annotation</div>
+      <div class="annotation-modal-info" id="annotationInfo"></div>
+      <input type="text" id="annotationInput" class="annotation-modal-input" placeholder="Enter your annotation...">
+      <div class="annotation-modal-buttons">
+        <button class="annotation-btn annotation-btn-cancel" id="annotationCancel">Cancel</button>
+        <button class="annotation-btn annotation-btn-delete" id="annotationDelete" style="display: none;">Delete</button>
+        <button class="annotation-btn annotation-btn-save" id="annotationSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-title">Weather & Evapotranspiration Dashboard <span id="versionBadge" style="font-size: 0.5em; opacity: 0.7;"></span></div>
+
+  <!-- SUN POSITION & YEARLY ET BALANCE -->
+  <div class="section-title">Sun Position & ET Balance</div>
+  <div class="sun-container">
+    <div class="card analemma-card">
+      <div class="card-title">Sun at 12:00 Clock Time</div>
+      <div class="subtitle">Sun's sky position at 12:00 local clock time, all year</div>
+
+      <div class="analemma-wrap">
+        <svg id="analemma" viewBox="0 0 220 360" aria-label="Analemma figure-eight">
+          <!-- reference crosshair: due-south meridian + equinox-noon altitude -->
+          <line id="axisV" stroke="#46586a" stroke-width="0.8" stroke-dasharray="2 4"/>
+          <line id="axisH" stroke="#46586a" stroke-width="0.8" stroke-dasharray="2 4"/>
+          <!-- dashed figure-8 path -->
+          <path id="path8" fill="none" stroke="#9fb3c8" stroke-width="2"
+                stroke-linecap="round" stroke-dasharray="0.1 5" opacity="0.85"/>
+          <!-- direction leader (tangent at today) + arrowhead -->
+          <line id="dirLeader" stroke="#f4d35e" stroke-width="1.6" stroke-linecap="round"/>
+          <polygon id="dirArrow" fill="#f4d35e"/>
+          <!-- glow + current dot -->
+          <circle id="nowGlow" fill="#f4d35e" opacity="0.25"/>
+          <circle id="nowDot" r="4.2" fill="#f7e08a" stroke="#fff6d6" stroke-width="1"/>
+          <!-- season + horizon-direction labels -->
+          <text id="lblTop" fill="#7f8f9e" font-size="9" text-anchor="middle">Jun</text>
+          <text id="lblBot" fill="#7f8f9e" font-size="9" text-anchor="middle">Dec</text>
+          <text id="lblS"   fill="#7f8f9e" font-size="8" text-anchor="middle">S</text>
+          <text x="12"  y="356" fill="#5f6f7e" font-size="8" text-anchor="middle">E</text>
+          <text x="208" y="356" fill="#5f6f7e" font-size="8" text-anchor="middle">W</text>
+        </svg>
+      </div>
+
+      <div class="analemma-dateline" id="analemmaDate"></div>
+      <div class="analemma-readout">
+        <div>Altitude<span class="val" id="altVal">—</span></div>
+        <div>Azimuth<span class="val" id="azVal">—</span></div>
+      </div>
+      <div class="analemma-sub" id="analemmaSub"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Cumulative ET Balance</div>
+      <div id="loadingBalYear" class="loading">Loading...</div>
+      <div id="errorBalYear" class="error" style="display: none;"></div>
+      <div id="chartBalYearSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartBalYear"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('BalYear')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('BalYear')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Final Balance</div><div class="stat-value" id="totalBalYear">--</div></div>
+          <div class="stat-item"><div class="stat-label">P / ET Total</div><div class="stat-value" id="avgBalYear">--</div></div>
+          <div class="stat-item"><div class="stat-label">Low Point</div><div class="stat-value" id="minBalYear">--</div></div>
+          <div class="stat-item"><div class="stat-label">Irrigation Total</div><div class="stat-value" id="irrTotalBalYear">--</div></div>
+          <div class="stat-item"><div class="stat-label">Watering Days</div><div class="stat-value" id="irrDaysBalYear">--</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 1: Evapotranspiration -->
+  <div class="section-title">Evapotranspiration</div>
+  <div class="cards-container">
+    <div class="card">
+      <div class="card-title">7-Day ET</div>
+      <div id="loadingET7" class="loading">Loading...</div>
+      <div id="errorET7" class="error" style="display: none;"></div>
+      <div id="chartET7Section" style="display: none;">
+        <div class="chart-container"><canvas id="chartET7"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('ET7')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('ET7')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value" id="totalET7">--</div></div>
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgET7">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxET7">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">14-Day ET</div>
+      <div id="loadingET14" class="loading">Loading...</div>
+      <div id="errorET14" class="error" style="display: none;"></div>
+      <div id="chartET14Section" style="display: none;">
+        <div class="chart-container"><canvas id="chartET14"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('ET14')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('ET14')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value" id="totalET14">--</div></div>
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgET14">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxET14">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">28-Day ET</div>
+      <div id="loadingET28" class="loading">Loading...</div>
+      <div id="errorET28" class="error" style="display: none;"></div>
+      <div id="chartET28Section" style="display: none;">
+        <div class="chart-container"><canvas id="chartET28"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('ET28')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('ET28')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value" id="totalET28">--</div></div>
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgET28">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxET28">--</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 2: Cumulative Water Balance -->
+  <div class="section-title">Cumulative Water Balance</div>
+  <div class="cards-container">
+    <div class="card">
+      <div class="card-title">7-Day Balance</div>
+      <div id="loadingBal7" class="loading">Loading...</div>
+      <div id="errorBal7" class="error" style="display: none;"></div>
+      <div id="chartBal7Section" style="display: none;">
+        <div class="chart-container"><canvas id="chartBal7"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('Bal7')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('Bal7')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Final Balance</div><div class="stat-value" id="totalBal7">--</div></div>
+          <div class="stat-item"><div class="stat-label">P / ET Total</div><div class="stat-value" id="avgBal7">--</div></div>
+          <div class="stat-item"><div class="stat-label">Low Point</div><div class="stat-value" id="minBal7">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">14-Day Balance</div>
+      <div id="loadingBal14" class="loading">Loading...</div>
+      <div id="errorBal14" class="error" style="display: none;"></div>
+      <div id="chartBal14Section" style="display: none;">
+        <div class="chart-container"><canvas id="chartBal14"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('Bal14')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('Bal14')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Final Balance</div><div class="stat-value" id="totalBal14">--</div></div>
+          <div class="stat-item"><div class="stat-label">P / ET Total</div><div class="stat-value" id="avgBal14">--</div></div>
+          <div class="stat-item"><div class="stat-label">Low Point</div><div class="stat-value" id="minBal14">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">28-Day Balance</div>
+      <div id="loadingBal28" class="loading">Loading...</div>
+      <div id="errorBal28" class="error" style="display: none;"></div>
+      <div id="chartBal28Section" style="display: none;">
+        <div class="chart-container"><canvas id="chartBal28"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('Bal28')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('Bal28')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Final Balance</div><div class="stat-value" id="totalBal28">--</div></div>
+          <div class="stat-item"><div class="stat-label">P / ET Total</div><div class="stat-value" id="avgBal28">--</div></div>
+          <div class="stat-item"><div class="stat-label">Low Point</div><div class="stat-value" id="minBal28">--</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Rainfall, Temperature, Solar Radiation -->
+  <div class="section-title">Weather Metrics (28 Days)</div>
+  <div class="cards-container">
+    <div class="card">
+      <div class="card-title">Daily Rainfall</div>
+      <div id="loadingRain" class="loading">Loading...</div>
+      <div id="errorRain" class="error" style="display: none;"></div>
+      <div id="chartRainSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartRain"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('rain')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('rain')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value" id="totalRain">--</div></div>
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgRain">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxRain">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Temperature</div>
+      <div id="loadingTemp" class="loading">Loading...</div>
+      <div id="errorTemp" class="error" style="display: none;"></div>
+      <div id="chartTempSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartTemp"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('temp')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('temp')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Avg Max</div><div class="stat-value" id="avgMaxTemp">--</div></div>
+          <div class="stat-item"><div class="stat-label">Avg</div><div class="stat-value" id="avgTemp">--</div></div>
+          <div class="stat-item"><div class="stat-label">Avg Min</div><div class="stat-value" id="avgMinTemp">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Solar Radiation</div>
+      <div id="loadingSolar" class="loading">Loading...</div>
+      <div id="errorSolar" class="error" style="display: none;"></div>
+      <div id="chartSolarSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartSolar"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('solar')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('solar')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value" id="totalSolar">--</div></div>
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgSolar">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxSolar">--</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 4: Wind, Humidity, Pressure -->
+  <div class="cards-container">
+    <div class="card">
+      <div class="card-title">Wind Speed</div>
+      <div id="loadingWind" class="loading">Loading...</div>
+      <div id="errorWind" class="error" style="display: none;"></div>
+      <div id="chartWindSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartWind"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('wind')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('wind')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgWind">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxWind">--</div></div>
+          <div class="stat-item"><div class="stat-label">Min</div><div class="stat-value" id="minWind">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Relative Humidity</div>
+      <div id="loadingHumid" class="loading">Loading...</div>
+      <div id="errorHumid" class="error" style="display: none;"></div>
+      <div id="chartHumidSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartHumid"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('humid')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('humid')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgHumid">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxHumid">--</div></div>
+          <div class="stat-item"><div class="stat-label">Min</div><div class="stat-value" id="minHumid">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Atmospheric Pressure</div>
+      <div id="loadingPress" class="loading">Loading...</div>
+      <div id="errorPress" class="error" style="display: none;"></div>
+      <div id="chartPressSection" style="display: none;">
+        <div class="chart-container"><canvas id="chartPress"></canvas></div>
+        <div class="chart-actions">
+          <button class="chart-action-btn" onclick="exportCSV('press')">📊 CSV</button>
+          <button class="chart-action-btn" onclick="printChart('press')">🖨️ Print</button>
+        </div>
+        <div class="stats-container">
+          <div class="stat-item"><div class="stat-label">Average</div><div class="stat-value" id="avgPress">--</div></div>
+          <div class="stat-item"><div class="stat-label">Max</div><div class="stat-value" id="maxPress">--</div></div>
+          <div class="stat-item"><div class="stat-label">Min</div><div class="stat-value" id="minPress">--</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer" id="updateTime">Updates on page refresh</div>
+
+<script>
+const APP_VERSION = '1.5.0';
+const charts = {};
+const annotations = {};
+let currentAnnotation = null;
+
+/* =========================================================================
+   ANALEMMA — sun's sky position (altitude/azimuth) at clock-noon, all year.
+   Location-specific (lat/lon) and DST-aware: the timezone's CURRENT UTC
+   offset is read once and applied consistently, so today's marker is correct
+   and the figure-8 stays a clean continuous loop. Independent per-axis
+   autoscale widens the (naturally thin) noon analemma to fill the card.
+   ========================================================================= */
+const SITE = {
+  lat:  33.03,               // °N  (site latitude, ~1 km precision is plenty)
+  lon: -96.74,               // °E  (west is negative)
+  tz:  'America/Chicago',    // DST handled automatically from this zone
+  clockHour: 12              // wall-clock time the analemma is sampled at (noon)
+};
+
+function dayOfYear(d) {
+  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  const start = Date.UTC(y, 0, 0);
+  const now   = Date.UTC(y, m, day);
+  return Math.floor((now - start) / 86400000);
+}
+// Solar declination (degrees), vernal-equinox reference at N=81
+function solarDeclination(N) {
+  return 23.44 * Math.sin((2 * Math.PI / 365) * (N - 81));
+}
+// Equation of time (minutes): +sundial ahead of clock
+function equationOfTime(N) {
+  const B = (2 * Math.PI / 365) * (N - 81);
+  return 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);
+}
+// UTC offset (hours, e.g. -5 for CDT / -6 for CST) for an instant in a timezone
+function tzOffsetHours(date, timeZone) {
+  const loc = new Date(date.toLocaleString('en-US', { timeZone }));
+  const utc = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+  return Math.round(((loc - utc) / 3600000) * 100) / 100;
+}
+// Sun altitude + azimuth (degrees) on day N at a wall-clock hour, given a
+// constant UTC offset. Azimuth: 0=N, 90=E, 180=S, 270=W.
+function sunAtClock(N, clockHour, lat, lon, offsetH) {
+  const d2r = Math.PI / 180, r2d = 180 / Math.PI;
+  const dec = solarDeclination(N), eot = equationOfTime(N);
+  const LSTM = 15 * offsetH;            // local standard-time meridian (deg)
+  const TC = 4 * (lon - LSTM) + eot;    // time-correction (minutes)
+  const LST = clockHour + TC / 60;      // local solar time (hours)
+  const H = (LST - 12) * 15;            // hour angle (deg), -=morning +=afternoon
+  const phi = lat * d2r, dlt = dec * d2r, Hr = H * d2r;
+  const sinAlt = Math.sin(phi) * Math.sin(dlt) + Math.cos(phi) * Math.cos(dlt) * Math.cos(Hr);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+  let cosAz = (Math.sin(dlt) - Math.sin(phi) * sinAlt) / (Math.cos(phi) * Math.cos(alt));
+  cosAz = Math.max(-1, Math.min(1, cosAz));
+  let az = Math.acos(cosAz) * r2d;      // 0..180 measured from North
+  if (H > 0) az = 360 - az;             // afternoon → swing to the west
+  return { alt: alt * r2d, az, dec, eot, H };
+}
+
+function azToCompass(az) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(az / 22.5) % 16];
+}
+
+function renderAnalemma() {
+  try {
+    const svg = document.getElementById('analemma');
+    if (!svg) return;
+    const VB = 220, VH = 360, PAD = 26;
+
+    const now = new Date();
+    // "today" in the site's timezone (so the day rolls over on local midnight)
+    const tzNow = new Date(now.toLocaleString('en-US', { timeZone: SITE.tz }));
+    const N = dayOfYear(tzNow);
+    // Current UTC offset (includes DST) — applied to every day for a clean loop
+    const offsetH = tzOffsetHours(now, SITE.tz);
+    const janOffset = tzOffsetHours(new Date(tzNow.getFullYear(), 0, 1), SITE.tz);
+    const julOffset = tzOffsetHours(new Date(tzNow.getFullYear(), 6, 1), SITE.tz);
+    const isDST = offsetH === Math.max(janOffset, julOffset) && janOffset !== julOffset;
+    const stdOffset = Math.min(janOffset, julOffset);
+    const displayHour = SITE.clockHour + (offsetH - stdOffset);
+
+    // Build the year of sky points, capture bounds
+    const pts = [];
+    let azMin = Infinity, azMax = -Infinity, altMin = Infinity, altMax = -Infinity;
+    for (let n = 1; n <= 365; n++) {
+      const p = sunAtClock(n, SITE.clockHour, SITE.lat, SITE.lon, stdOffset);
+      pts.push({ n, az: p.az, alt: p.alt });
+      if (p.az < azMin) azMin = p.az; if (p.az > azMax) azMax = p.az;
+      if (p.alt < altMin) altMin = p.alt; if (p.alt > altMax) altMax = p.alt;
+    }
+    const azSpan = (azMax - azMin) || 1, altSpan = (altMax - altMin) || 1;
+
+    // map azimuth->x (west to the right when facing south), altitude->y (up=high)
+    const x = az  => PAD + (az - azMin) / azSpan * (VB - 2 * PAD);
+    const y = alt => (VH - PAD) - (alt - altMin) / altSpan * (VH - 2 * PAD);
+
+    // dashed figure-8 path
+    let dAttr = '';
+    pts.forEach((p, i) => { dAttr += (i ? 'L' : 'M') + x(p.az).toFixed(2) + ' ' + y(p.alt).toFixed(2) + ' '; });
+    dAttr += 'Z';
+    document.getElementById('path8').setAttribute('d', dAttr);
+
+    // crosshair: vertical at due-south (az=180), horizontal at equinox altitude
+    const altEquinox = sunAtClock(81, SITE.clockHour, SITE.lat, SITE.lon, stdOffset).alt;
+    const sx = x(180);
+    const onScale = sx >= PAD && sx <= VB - PAD;
+    const aV = document.getElementById('axisV');
+    aV.setAttribute('x1', sx); aV.setAttribute('x2', sx);
+    aV.setAttribute('y1', PAD - 6); aV.setAttribute('y2', VH - PAD + 6);
+    aV.style.display = onScale ? '' : 'none';
+    const aH = document.getElementById('axisH');
+    aH.setAttribute('x1', PAD - 6); aH.setAttribute('x2', VB - PAD + 6);
+    aH.setAttribute('y1', y(altEquinox)); aH.setAttribute('y2', y(altEquinox));
+    const lblS = document.getElementById('lblS');
+    lblS.setAttribute('x', sx); lblS.setAttribute('y', VH - PAD + 14);
+    lblS.style.display = onScale ? '' : 'none';
+
+    // season labels at the altitude extremes (high=summer, low=winter)
+    const top = pts.reduce((a, b) => b.alt > a.alt ? b : a);
+    const bot = pts.reduce((a, b) => b.alt < a.alt ? b : a);
+    const lblTop = document.getElementById('lblTop');
+    lblTop.setAttribute('x', x(top.az)); lblTop.setAttribute('y', y(top.alt) - 8);
+    const lblBot = document.getElementById('lblBot');
+    lblBot.setAttribute('x', x(bot.az)); lblBot.setAttribute('y', y(bot.alt) + 16);
+
+    // ---- today ----
+    const cur = sunAtClock(N, SITE.clockHour, SITE.lat, SITE.lon, stdOffset);
+    const px = x(cur.az), py = y(cur.alt);
+    document.getElementById('nowDot').setAttribute('cx', px);
+    document.getElementById('nowDot').setAttribute('cy', py);
+    const glow = document.getElementById('nowGlow');
+    glow.setAttribute('cx', px); glow.setAttribute('cy', py); glow.setAttribute('r', 11);
+
+    // direction leader: tangent from today -> tomorrow, drawn as a line + arrowhead
+    const next = sunAtClock((N % 365) + 1, SITE.clockHour, SITE.lat, SITE.lon, stdOffset);
+    let vx = x(next.az) - px, vy = y(next.alt) - py;
+    const len = Math.hypot(vx, vy) || 1; vx /= len; vy /= len;
+    const lead = document.getElementById('dirLeader');
+    lead.setAttribute('x1', px + vx * 6);  lead.setAttribute('y1', py + vy * 6);
+    lead.setAttribute('x2', px + vx * 16); lead.setAttribute('y2', py + vy * 16);
+    const ax = px + vx * 20, ay = py + vy * 20;          // arrow tip, ahead of dot
+    const nx = -vy, ny = vx, s = 4;                       // normal, half-width
+    const arrow = `${ax},${ay} ${ax - vx*7 + nx*s},${ay - vy*7 + ny*s} ${ax - vx*7 - nx*s},${ay - vy*7 - ny*s}`;
+    document.getElementById('dirArrow').setAttribute('points', arrow);
+
+    // readout
+    const titleEl = document.querySelector('.analemma-card .card-title');
+    if (titleEl) titleEl.textContent = `Sun at ${displayHour}:00 Clock Time`;
+    document.getElementById('analemmaDate').textContent =
+      tzNow.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: SITE.tz });
+    document.getElementById('altVal').textContent = cur.alt.toFixed(1) + '°';
+    document.getElementById('azVal').textContent =
+      cur.az.toFixed(1) + '° ' + azToCompass(cur.az);
+
+    const solarNoonAlt = 90 - Math.abs(SITE.lat - cur.dec);
+    const solarNoonH = 12 - (4 * (SITE.lon - 15 * offsetH) + cur.eot) / 60;
+    let snH = Math.floor(solarNoonH), snM = Math.round((solarNoonH - snH) * 60);
+    if (snM === 60) { snH += 1; snM = 0; }
+    const snTime = `${snH}:${String(snM).padStart(2, '0')}`;
+
+    const tzAbbr = new Intl.DateTimeFormat('en-US', { timeZone: SITE.tz, timeZoneName: 'short' })
+      .formatToParts(now).find(p => p.type === 'timeZoneName')?.value || '';
+    const offTxt = 'UTC' + (offsetH < 0 ? '−' : '+') + Math.abs(offsetH);
+    document.getElementById('analemmaSub').textContent =
+      `Solar noon ${snTime} · ${solarNoonAlt.toFixed(1)}° · ` +
+      `δ ${cur.dec >= 0 ? '+' : ''}${cur.dec.toFixed(1)}° · ` +
+      `EoT ${cur.eot >= 0 ? '+' : ''}${cur.eot.toFixed(1)}m · ` +
+      `${tzAbbr} (${offTxt}${isDST ? ', DST' : ''})`;
+  } catch (error) {
+    console.error('Error rendering analemma:', error);
+  }
+}
+
+// Annotation management
+function loadAnnotations() {
+  try {
+    const stored = localStorage.getItem('chartAnnotations');
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.error('Error loading annotations:', error);
+    return {};
+  }
+}
+
+function saveAnnotations() {
+  localStorage.setItem('chartAnnotations', JSON.stringify(annotations));
+}
+
+function getAnnotationKey(chartId, dataIndex) {
+  return `${chartId}_${dataIndex}`;
+}
+
+function openAnnotationModal(chartId, dataIndex, label, value) {
+  const modal = document.getElementById('annotationModal');
+  const input = document.getElementById('annotationInput');
+  const info = document.getElementById('annotationInfo');
+  const deleteBtn = document.getElementById('annotationDelete');
+
+  const key = getAnnotationKey(chartId, dataIndex);
+  const existingAnnotation = annotations[key];
+
+  currentAnnotation = { chartId, dataIndex, label, value };
+
+  info.textContent = `${label}: ${value}`;
+  input.value = existingAnnotation ? existingAnnotation.text : '';
+
+  if (existingAnnotation) {
+    deleteBtn.style.display = 'inline-block';
+  } else {
+    deleteBtn.style.display = 'none';
+  }
+
+  modal.classList.add('active');
+  input.focus();
+}
+
+function closeAnnotationModal() {
+  document.getElementById('annotationModal').classList.remove('active');
+  currentAnnotation = null;
+}
+
+function saveAnnotation() {
+  if (!currentAnnotation) return;
+
+  const input = document.getElementById('annotationInput');
+  const text = input.value.trim();
+
+  if (text) {
+    const key = getAnnotationKey(currentAnnotation.chartId, currentAnnotation.dataIndex);
+    annotations[key] = {
+      text: text,
+      label: currentAnnotation.label,
+      value: currentAnnotation.value
+    };
+    saveAnnotations();
+
+    // Refresh the specific chart
+    const chartInstance = charts[currentAnnotation.chartId];
+    if (chartInstance) {
+      updateChartAnnotations(chartInstance, currentAnnotation.chartId);
+    }
+  }
+
+  closeAnnotationModal();
+}
+
+function deleteAnnotation() {
+  if (!currentAnnotation) return;
+
+  const key = getAnnotationKey(currentAnnotation.chartId, currentAnnotation.dataIndex);
+  delete annotations[key];
+  saveAnnotations();
+
+  // Refresh the specific chart
+  const chartInstance = charts[currentAnnotation.chartId];
+  if (chartInstance) {
+    updateChartAnnotations(chartInstance, currentAnnotation.chartId);
+  }
+
+  closeAnnotationModal();
+}
+
+function updateChartAnnotations(chart, chartId) {
+  try {
+    if (!chart || !chart.options || !chart.options.plugins || !chart.options.plugins.annotation) return;
+    if (!chart.data || !chart.data.datasets || chart.data.datasets.length === 0) return;
+
+    const annotationConfigs = {};
+
+    // Find all annotations for this chart
+    Object.keys(annotations).forEach(key => {
+      if (key.startsWith(chartId + '_')) {
+        const dataIndex = parseInt(key.split('_')[1]);
+        const ann = annotations[key];
+
+        // Safely get the y value
+        const yValue = chart.data.datasets[0].data[dataIndex];
+        if (yValue === undefined) return;
+
+        annotationConfigs[key] = {
+          type: 'label',
+          xValue: dataIndex,
+          yValue: yValue,
+          backgroundColor: 'rgba(96, 165, 250, 0.9)',
+          borderColor: 'rgba(59, 130, 246, 1)',
+          borderWidth: 2,
+          borderRadius: 6,
+          color: '#fff',
+          content: ann.text,
+          padding: 6,
+          font: {
+            size: 10,
+            weight: 'bold'
+          },
+          position: 'start',
+          yAdjust: -15,
+          // Make the label itself clickable so users can edit/delete the annotation
+          // without having to click the underlying data point (which the label often covers).
+          enter: ({ chart }) => { chart.canvas.style.cursor = 'pointer'; },
+          leave: ({ chart }) => { chart.canvas.style.cursor = 'default'; },
+          click: () => {
+            openAnnotationModal(chartId, dataIndex, ann.label, ann.value);
+          }
+        };
+      }
+    });
+
+    chart.options.plugins.annotation.annotations = annotationConfigs;
+    chart.update();
+  } catch (error) {
+    console.error('Error updating chart annotations for', chartId, ':', error);
+  }
+}
+
+// Modal event listeners - wrapped in try-catch for safety
+try {
+  document.getElementById('annotationSave').addEventListener('click', saveAnnotation);
+  document.getElementById('annotationDelete').addEventListener('click', deleteAnnotation);
+  document.getElementById('annotationCancel').addEventListener('click', closeAnnotationModal);
+  document.getElementById('annotationInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      saveAnnotation();
+    }
+  });
+
+  // Close modal when clicking outside
+  document.getElementById('annotationModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+      closeAnnotationModal();
+    }
+  });
+
+  // Load annotations on startup
+  Object.assign(annotations, loadAnnotations());
+} catch (error) {
+  console.error('Error setting up annotation listeners:', error);
+}
+
+// Fetch data from API
+async function fetchData(days) {
+  try {
+    const response = await fetch(`/api/et-data.php?days=${days}`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error || 'Failed to fetch data');
+    return result.data;
+  } catch (error) {
+    console.error(`Error fetching ${days}-day data:`, error);
+    throw error;
+  }
+}
+
+// Format date
+function formatDate(dateString, days) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Generic line chart config
+function getLineChartConfig(dates, values, label, color, days, chartId) {
+  return {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: label,
+        data: values,
+        borderColor: color,
+        borderWidth: 2.5,
+        fill: true,
+        backgroundColor: `${color.replace('1)', '0.15)')}`,
+        tension: 0.4,
+        pointRadius: days === 28 ? 2 : 3,
+        pointBackgroundColor: color,
+        pointBorderColor: '#1e3a8a',
+        pointBorderWidth: 1,
+        pointHoverRadius: days === 28 ? 4 : 5
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (mouseEvent, elements, chart) => {
+        // Ultra-robust detection of ANY modifier key (Ctrl, Cmd, Shift, Alt)
+        const e = mouseEvent.native || mouseEvent.evt || mouseEvent;
+        if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)) {
+          return; // Hand the event completely to the zoom plugin
+        }
+
+        // Only run annotation logic if NO modifier is pressed
+        if (elements && elements.length > 0) {
+          const el = elements[0];
+          const idx = el.index;
+          const value = chart.data.datasets[el.datasetIndex].data[idx];
+          const dateLabel = chart.data.labels[idx];
+          openAnnotationModal(chartId, idx, dateLabel, value.toFixed(3));
+        }
+      },
+      onDoubleClick: (mouseEvent, elements, chart) => {
+        chart.resetZoom();
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.9)',
+          titleColor: '#f0f4f8',
+          bodyColor: '#d8e1e8',
+          borderColor: 'rgba(255, 255, 255, 0.1)',
+          borderWidth: 1,
+          padding: 10,
+          displayColors: false
+        },
+        annotation: {
+          annotations: {}
+        },
+        zoom: {
+          zoom: {
+            wheel: {
+              enabled: true,
+              speed: 0.1
+            },
+            pinch: {
+              enabled: true
+            },
+            mode: 'xy',
+            onZoomComplete: function({chart}) {
+              chart.update('none');
+            }
+          },
+          pan: {
+            enabled: true,
+            mode: 'xy',
+            modifierKey: 'ctrl'
+          },
+          limits: {
+            x: { min: 'original', max: 'original' },
+            y: { min: 'original', max: 'original' }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: { color: '#9fb3c8', font: { size: 10 } }
+        },
+        x: {
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: {
+            color: '#9fb3c8',
+            font: { size: 9 },
+            maxRotation: days === 28 ? 45 : 0,
+            minRotation: days === 28 ? 45 : 0
+          }
+        }
+      }
+    }
+  };
+}
+
+// Bar chart config
+function getBarChartConfig(dates, values, label, color, days, chartId) {
+  return {
+    type: 'bar',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: label,
+        data: values,
+        backgroundColor: `${color.replace('1)', '0.7)')}`,
+        borderColor: color,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (mouseEvent, elements, chart) => {
+        // Ultra-robust detection of ANY modifier key (Ctrl, Cmd, Shift, Alt)
+        const e = mouseEvent.native || mouseEvent.evt || mouseEvent;
+        if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)) {
+          return; // Hand the event completely to the zoom plugin
+        }
+
+        // Only run annotation logic if NO modifier is pressed
+        if (elements && elements.length > 0) {
+          const el = elements[0];
+          const idx = el.index;
+          const value = chart.data.datasets[el.datasetIndex].data[idx];
+          const dateLabel = chart.data.labels[idx];
+          openAnnotationModal(chartId, idx, dateLabel, value.toFixed(3));
+        }
+      },
+      onDoubleClick: (mouseEvent, elements, chart) => {
+        chart.resetZoom();
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.9)',
+          titleColor: '#f0f4f8',
+          bodyColor: '#d8e1e8',
+          borderColor: 'rgba(255, 255, 255, 0.1)',
+          borderWidth: 1,
+          padding: 10,
+          displayColors: false
+        },
+        annotation: {
+          annotations: {}
+        },
+        zoom: {
+          zoom: {
+            wheel: {
+              enabled: true,
+              speed: 0.1
+            },
+            pinch: {
+              enabled: true
+            },
+            mode: 'xy',
+            onZoomComplete: function({chart}) {
+              chart.update('none');
+            }
+          },
+          pan: {
+            enabled: true,
+            mode: 'xy',
+            modifierKey: 'ctrl'
+          },
+          limits: {
+            x: { min: 'original', max: 'original' },
+            y: { min: 'original', max: 'original' }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: { color: '#9fb3c8', font: { size: 10 } }
+        },
+        x: {
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: {
+            color: '#9fb3c8',
+            font: { size: 9 },
+            maxRotation: days === 28 ? 45 : 0,
+            minRotation: days === 28 ? 45 : 0
+          }
+        }
+      }
+    }
+  };
+}
+
+// ET Chart
+async function createETChart(days) {
+  const id = `ET${days}`;
+  try {
+    const data = await fetchData(days);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, days));
+    const etValues = data.map(d => d.et);
+    const totalET = etValues.reduce((a, b) => a + b, 0);
+    const avgET = totalET / etValues.length;
+    const maxET = Math.max(...etValues);
+
+    document.getElementById(`total${id}`).textContent = totalET.toFixed(3) + ' in';
+    document.getElementById(`avg${id}`).textContent = avgET.toFixed(3) + ' in';
+    document.getElementById(`max${id}`).textContent = maxET.toFixed(3) + ' in';
+    document.getElementById(`loading${id}`).style.display = 'none';
+    document.getElementById(`chart${id}Section`).style.display = 'block';
+
+    const ctx = document.getElementById(`chart${id}`).getContext('2d');
+    charts[id] = new Chart(ctx, getLineChartConfig(dates, etValues, 'ET (inches)', 'rgba(96, 165, 250, 1)', days, id));
+    updateChartAnnotations(charts[id], id);
+  } catch (error) {
+    document.getElementById(`loading${id}`).style.display = 'none';
+    document.getElementById(`error${id}`).style.display = 'block';
+    document.getElementById(`error${id}`).textContent = 'Error: ' + error.message;
+  }
+}
+
+// Balance Chart with cumulative calculation
+async function createBalanceChart(days) {
+  const id = `Bal${days}`;
+  try {
+    const data = await fetchData(days);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    let cumulative = 0;
+    const cumulativeValues = data.map(d => {
+      cumulative += d.precipitation - d.et;
+      return cumulative;
+    });
+
+    const dates = data.map(d => formatDate(d.date, days));
+    const finalBalance = cumulativeValues[cumulativeValues.length - 1];
+    const totalPrecip = data.reduce((a, b) => a + b.precipitation, 0);
+    const totalET = data.reduce((a, b) => a + b.et, 0);
+    const minCumulative = Math.min(...cumulativeValues);
+
+    document.getElementById(`total${id}`).textContent = (finalBalance >= 0 ? '+' : '') + finalBalance.toFixed(3) + ' in';
+    document.getElementById(`avg${id}`).textContent = 'P:' + totalPrecip.toFixed(2) + ' E:' + totalET.toFixed(2);
+    document.getElementById(`min${id}`).textContent = (minCumulative >= 0 ? '+' : '') + minCumulative.toFixed(3) + ' in';
+    document.getElementById(`loading${id}`).style.display = 'none';
+    document.getElementById(`chart${id}Section`).style.display = 'block';
+
+    const ctx = document.getElementById(`chart${id}`).getContext('2d');
+    charts[id] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'Cumulative Water Balance (inches)',
+          data: cumulativeValues,
+          borderColor: '#60a5fa',
+          borderWidth: 2.5,
+          fill: true,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const {ctx, chartArea} = chart;
+            if (!chartArea) return null;
+
+            const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+            const yScale = chart.scales.y;
+            const zeroPixel = yScale.getPixelForValue(0);
+            const topPixel = chartArea.top;
+            const bottomPixel = chartArea.bottom;
+            const range = bottomPixel - topPixel;
+
+            if (zeroPixel <= topPixel) {
+              // All values negative - red
+              gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+              gradient.addColorStop(1, 'rgba(239, 68, 68, 0.1)');
+            } else if (zeroPixel >= bottomPixel) {
+              // All values positive - green
+              gradient.addColorStop(0, 'rgba(34, 197, 94, 0.1)');
+              gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');
+            } else {
+              // Mixed values
+              const zeroPosition = (bottomPixel - zeroPixel) / range;
+              gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+              gradient.addColorStop(zeroPosition - 0.01, 'rgba(239, 68, 68, 0.1)');
+              gradient.addColorStop(zeroPosition + 0.01, 'rgba(34, 197, 94, 0.1)');
+              gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');
+            }
+            return gradient;
+          },
+          tension: 0.4,
+          pointRadius: days === 28 ? 2 : 3,
+          pointBackgroundColor: '#60a5fa',
+          pointBorderColor: '#1e3a8a',
+          pointBorderWidth: 1,
+          pointHoverRadius: days === 28 ? 4 : 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (mouseEvent, elements, chart) => {
+          // Ultra-robust detection of ANY modifier key (Ctrl, Cmd, Shift, Alt)
+          const e = mouseEvent.native || mouseEvent.evt || mouseEvent;
+          if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)) {
+            return; // Hand the event completely to the zoom plugin
+          }
+
+          // Only run annotation logic if NO modifier is pressed
+          if (elements && elements.length > 0) {
+            const el = elements[0];
+            const idx = el.index;
+            const value = chart.data.datasets[el.datasetIndex].data[idx];
+            const dateLabel = chart.data.labels[idx];
+            openAnnotationModal(id, idx, dateLabel, (value >= 0 ? '+' : '') + value.toFixed(3));
+          }
+        },
+        onDoubleClick: (mouseEvent, elements, chart) => {
+          chart.resetZoom();
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f0f4f8',
+            bodyColor: '#d8e1e8',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            padding: 10,
+            displayColors: false,
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y;
+                return 'Cumulative: ' + (value >= 0 ? '+' : '') + value.toFixed(3) + ' in';
+              }
+            }
+          },
+          annotation: {
+            annotations: {}
+          },
+          zoom: {
+            zoom: {
+              wheel: {
+                enabled: true,
+                speed: 0.1
+              },
+              pinch: {
+                enabled: true
+              },
+              mode: 'xy'
+            },
+            pan: {
+              enabled: true,
+              mode: 'xy',
+              modifierKey: 'ctrl'
+            },
+            limits: {
+              x: { min: 'original', max: 'original' },
+              y: { min: 'original', max: 'original' }
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: {
+              color: function(context) {
+                return context.tick.value === 0 ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+              },
+              lineWidth: function(context) {
+                return context.tick.value === 0 ? 2 : 1;
+              }
+            },
+            ticks: {
+              color: '#9fb3c8',
+              font: { size: 10 },
+              callback: function(value) {
+                return (value >= 0 ? '+' : '') + value.toFixed(3) + '"';
+              }
+            }
+          },
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              color: '#9fb3c8',
+              font: { size: 9 },
+              maxRotation: days === 28 ? 45 : 0,
+              minRotation: days === 28 ? 45 : 0
+            }
+          }
+        }
+      }
+    });
+    updateChartAnnotations(charts[id], id);
+  } catch (error) {
+    document.getElementById(`loading${id}`).style.display = 'none';
+    document.getElementById(`error${id}`).style.display = 'block';
+    document.getElementById(`error${id}`).textContent = 'Error: ' + error.message;
+  }
+}
+
+// Yearly Balance Chart (up to 365 days)
+async function createYearlyBalanceChart() {
+  const id = 'BalYear';
+  try {
+    const data = await fetchData(365);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    let cumulative = 0;
+    const cumulativeValues = data.map(d => {
+      cumulative += d.precipitation - d.et;
+      return cumulative;
+    });
+
+    // Irrigation simulation: Mon/Thu, trigger at -1.25" deficit, max 2 runs of 1" each
+    let cumIrr = 0;
+    let totalIrrigation = 0;
+    let singleRunDays = 0;
+    let doubleRunDays = 0;
+    const irrValues = [];
+    const irrRuns = []; // 0, 1, or 2 runs per day
+    data.forEach(d => {
+      const dow = new Date(d.date + 'T12:00:00').getDay(); // 1=Mon, 4=Thu
+      cumIrr += d.precipitation - d.et;
+      let runs = 0;
+      if (dow === 1 || dow === 4) {
+        if (cumIrr <= -1.25) { cumIrr += 1.0; runs++; totalIrrigation += 1.0; }
+        if (cumIrr <= -1.25) { cumIrr += 1.0; runs++; totalIrrigation += 1.0; }
+      }
+      if (runs === 1) singleRunDays++;
+      if (runs === 2) doubleRunDays++;
+      irrValues.push(cumIrr);
+      irrRuns.push(runs);
+    });
+
+    const dates = data.map(d => {
+      const date = new Date(d.date);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const finalBalance = cumulativeValues[cumulativeValues.length - 1];
+    const totalPrecip = data.reduce((a, b) => a + b.precipitation, 0);
+    const totalET = data.reduce((a, b) => a + b.et, 0);
+    const minCumulative = Math.min(...cumulativeValues);
+
+    document.getElementById(`total${id}`).textContent = (finalBalance >= 0 ? '+' : '') + finalBalance.toFixed(3) + ' in';
+    document.getElementById(`avg${id}`).textContent = 'P:' + totalPrecip.toFixed(2) + ' E:' + totalET.toFixed(2);
+    document.getElementById(`min${id}`).textContent = (minCumulative >= 0 ? '+' : '') + minCumulative.toFixed(3) + ' in';
+    document.getElementById(`irrTotal${id}`).textContent = totalIrrigation.toFixed(0) + ' in';
+    document.getElementById(`irrDays${id}`).textContent = singleRunDays + ' x1, ' + doubleRunDays + ' x2';
+    document.getElementById(`loading${id}`).style.display = 'none';
+    document.getElementById(`chart${id}Section`).style.display = 'block';
+
+    // Point styling for irrigation line: colored dots on watering days
+    const irrPointRadius = irrRuns.map(r => r > 0 ? 5 : 0);
+    const irrPointBg = irrRuns.map(r => r === 2 ? '#f59e0b' : r === 1 ? '#34d399' : 'transparent');
+    const irrPointBorder = irrRuns.map(r => r === 2 ? '#d97706' : r === 1 ? '#059669' : 'transparent');
+
+    const ctx = document.getElementById(`chart${id}`).getContext('2d');
+    charts[id] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'ET Balance',
+          data: cumulativeValues,
+          borderColor: '#60a5fa',
+          borderWidth: 2,
+          fill: true,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const {ctx, chartArea} = chart;
+            if (!chartArea) return null;
+
+            const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+            const yScale = chart.scales.y;
+            const zeroPixel = yScale.getPixelForValue(0);
+            const topPixel = chartArea.top;
+            const bottomPixel = chartArea.bottom;
+            const range = bottomPixel - topPixel;
+
+            if (zeroPixel <= topPixel) {
+              gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+              gradient.addColorStop(1, 'rgba(239, 68, 68, 0.1)');
+            } else if (zeroPixel >= bottomPixel) {
+              gradient.addColorStop(0, 'rgba(34, 197, 94, 0.1)');
+              gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');
+            } else {
+              const zeroPosition = (bottomPixel - zeroPixel) / range;
+              gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+              gradient.addColorStop(zeroPosition - 0.01, 'rgba(239, 68, 68, 0.1)');
+              gradient.addColorStop(zeroPosition + 0.01, 'rgba(34, 197, 94, 0.1)');
+              gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');
+            }
+            return gradient;
+          },
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          pointBackgroundColor: '#60a5fa',
+          pointBorderColor: '#1e3a8a',
+          pointBorderWidth: 1
+        },
+        {
+          label: 'ET Balance + Irrigation',
+          data: irrValues,
+          borderColor: '#a78bfa',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          fill: false,
+          tension: 0.4,
+          pointRadius: irrPointRadius,
+          pointHoverRadius: irrRuns.map(r => r > 0 ? 7 : 3),
+          pointBackgroundColor: irrPointBg,
+          pointBorderColor: irrPointBorder,
+          pointBorderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (mouseEvent, elements, chart) => {
+          const e = mouseEvent.native || mouseEvent.evt || mouseEvent;
+          if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)) return;
+          if (elements && elements.length > 0) {
+            const el = elements[0];
+            const idx = el.index;
+            const value = chart.data.datasets[el.datasetIndex].data[idx];
+            const dateLabel = chart.data.labels[idx];
+            openAnnotationModal(id, idx, dateLabel, (value >= 0 ? '+' : '') + value.toFixed(3));
+          }
+        },
+        onDoubleClick: (mouseEvent, elements, chart) => {
+          chart.resetZoom();
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: '#9fb3c8',
+              usePointStyle: false,
+              font: { size: 11 },
+              generateLabels: function(chart) {
+                const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                labels.push({
+                  text: '1 run',
+                  fillStyle: '#34d399',
+                  strokeStyle: '#059669',
+                  lineWidth: 2,
+                  hidden: false,
+                  pointStyle: 'circle'
+                });
+                labels.push({
+                  text: '2 runs',
+                  fillStyle: '#f59e0b',
+                  strokeStyle: '#d97706',
+                  lineWidth: 2,
+                  hidden: false,
+                  pointStyle: 'circle'
+                });
+                return labels;
+              }
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f0f4f8',
+            bodyColor: '#d8e1e8',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            padding: 10,
+            displayColors: true,
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y;
+                let label = context.dataset.label + ': ' + (value >= 0 ? '+' : '') + value.toFixed(3) + ' in';
+                if (context.datasetIndex === 1) {
+                  const runs = irrRuns[context.dataIndex];
+                  if (runs > 0) label += ' (' + runs + ' irrigation run' + (runs > 1 ? 's' : '') + ')';
+                }
+                return label;
+              }
+            }
+          },
+          annotation: { annotations: {} },
+          zoom: {
+            zoom: {
+              wheel: { enabled: true, speed: 0.1 },
+              pinch: { enabled: true },
+              mode: 'xy'
+            },
+            pan: {
+              enabled: true,
+              mode: 'xy',
+              modifierKey: 'ctrl'
+            },
+            limits: {
+              x: { min: 'original', max: 'original' },
+              y: { min: 'original', max: 'original' }
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: {
+              color: function(context) {
+                return context.tick.value === 0 ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+              },
+              lineWidth: function(context) {
+                return context.tick.value === 0 ? 2 : 1;
+              }
+            },
+            ticks: {
+              color: '#9fb3c8',
+              font: { size: 10 },
+              callback: function(value) {
+                return (value >= 0 ? '+' : '') + value.toFixed(2) + '"';
+              }
+            }
+          },
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              color: '#9fb3c8',
+              font: { size: 9 },
+              maxRotation: 45,
+              minRotation: 45,
+              autoSkip: true,
+              maxTicksLimit: 12
+            }
+          }
+        }
+      }
+    });
+    updateChartAnnotations(charts[id], id);
+  } catch (error) {
+    document.getElementById(`loading${id}`).style.display = 'none';
+    document.getElementById(`error${id}`).style.display = 'block';
+    document.getElementById(`error${id}`).textContent = 'Error: ' + error.message;
+  }
+}
+
+// Rainfall Chart
+async function createRainfallChart() {
+  const id = 'rain';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const rainValues = data.map(d => d.precipitation);
+    const totalRain = rainValues.reduce((a, b) => a + b, 0);
+    const avgRain = totalRain / rainValues.length;
+    const maxRain = Math.max(...rainValues);
+
+    document.getElementById('totalRain').textContent = totalRain.toFixed(2) + ' in';
+    document.getElementById('avgRain').textContent = avgRain.toFixed(3) + ' in';
+    document.getElementById('maxRain').textContent = maxRain.toFixed(2) + ' in';
+    document.getElementById('loadingRain').style.display = 'none';
+    document.getElementById('chartRainSection').style.display = 'block';
+
+    const ctx = document.getElementById('chartRain').getContext('2d');
+    charts.rain = new Chart(ctx, getBarChartConfig(dates, rainValues, 'Rainfall (inches)', 'rgba(59, 130, 246, 1)', 28, id));
+    updateChartAnnotations(charts.rain, id);
+  } catch (error) {
+    document.getElementById('loadingRain').style.display = 'none';
+    document.getElementById('errorRain').style.display = 'block';
+    document.getElementById('errorRain').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Temperature Chart
+async function createTempChart() {
+  const id = 'temp';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const maxTemps = data.map(d => d.temp_max);
+    const minTemps = data.map(d => d.temp_min);
+    const avgTemps = data.map(d => d.temp_avg);
+
+    const avgMax = maxTemps.reduce((a, b) => a + b, 0) / maxTemps.length;
+    const avgAvg = avgTemps.reduce((a, b) => a + b, 0) / avgTemps.length;
+    const avgMin = minTemps.reduce((a, b) => a + b, 0) / minTemps.length;
+
+    document.getElementById('avgMaxTemp').textContent = avgMax.toFixed(1) + '°F';
+    document.getElementById('avgTemp').textContent = avgAvg.toFixed(1) + '°F';
+    document.getElementById('avgMinTemp').textContent = avgMin.toFixed(1) + '°F';
+    document.getElementById('loadingTemp').style.display = 'none';
+    document.getElementById('chartTempSection').style.display = 'block';
+
+    const ctx = document.getElementById('chartTemp').getContext('2d');
+    charts.temp = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [
+          {
+            label: 'Max Temp',
+            data: maxTemps,
+            borderColor: 'rgba(239, 68, 68, 1)',
+            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 2
+          },
+          {
+            label: 'Avg Temp',
+            data: avgTemps,
+            borderColor: 'rgba(96, 165, 250, 1)',
+            backgroundColor: 'rgba(96, 165, 250, 0.15)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 2
+          },
+          {
+            label: 'Min Temp',
+            data: minTemps,
+            borderColor: 'rgba(59, 130, 246, 1)',
+            backgroundColor: 'rgba(59, 130, 246, 0.15)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (mouseEvent, elements, chart) => {
+          // Ultra-robust detection of ANY modifier key (Ctrl, Cmd, Shift, Alt)
+          const e = mouseEvent.native || mouseEvent.evt || mouseEvent;
+          if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)) {
+            return; // Hand the event completely to the zoom plugin
+          }
+
+          // Only run annotation logic if NO modifier is pressed
+          if (elements && elements.length > 0) {
+            const el = elements[0];
+            const idx = el.index;
+            const datasetIndex = el.datasetIndex;
+            const value = chart.data.datasets[datasetIndex].data[idx];
+            const dateLabel = chart.data.labels[idx];
+            const datasetLabel = chart.data.datasets[datasetIndex].label;
+            openAnnotationModal(id, idx, `${dateLabel} - ${datasetLabel}`, value.toFixed(1) + '°F');
+          }
+        },
+        onDoubleClick: (mouseEvent, elements, chart) => {
+          chart.resetZoom();
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: '#d8e1e8', font: { size: 10 } }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f0f4f8',
+            bodyColor: '#d8e1e8',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            padding: 10
+          },
+          annotation: {
+            annotations: {}
+          },
+          zoom: {
+            zoom: {
+              wheel: {
+                enabled: true,
+                speed: 0.1
+              },
+              pinch: {
+                enabled: true
+              },
+              mode: 'xy'
+            },
+            pan: {
+              enabled: true,
+              mode: 'xy',
+              modifierKey: 'ctrl'
+            },
+            limits: {
+              x: { min: 'original', max: 'original' },
+              y: { min: 'original', max: 'original' }
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { color: '#9fb3c8', font: { size: 10 } }
+          },
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { color: '#9fb3c8', font: { size: 9 }, maxRotation: 45, minRotation: 45 }
+          }
+        }
+      }
+    });
+    updateChartAnnotations(charts.temp, id);
+  } catch (error) {
+    document.getElementById('loadingTemp').style.display = 'none';
+    document.getElementById('errorTemp').style.display = 'block';
+    document.getElementById('errorTemp').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Solar Radiation Chart
+async function createSolarChart() {
+  const id = 'solar';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const solarValues = data.map(d => d.solar_radiation);
+    const total = solarValues.reduce((a, b) => a + b, 0);
+    const avg = total / solarValues.length;
+    const max = Math.max(...solarValues);
+
+    document.getElementById('totalSolar').textContent = total.toFixed(1);
+    document.getElementById('avgSolar').textContent = avg.toFixed(2);
+    document.getElementById('maxSolar').textContent = max.toFixed(2);
+    document.getElementById('loadingSolar').style.display = 'none';
+    document.getElementById('chartSolarSection').style.display = 'block';
+
+    const ctx = document.getElementById('chartSolar').getContext('2d');
+    charts.solar = new Chart(ctx, getLineChartConfig(dates, solarValues, 'Solar Radiation', 'rgba(251, 191, 36, 1)', 28, id));
+    updateChartAnnotations(charts.solar, id);
+  } catch (error) {
+    document.getElementById('loadingSolar').style.display = 'none';
+    document.getElementById('errorSolar').style.display = 'block';
+    document.getElementById('errorSolar').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Wind Speed Chart
+async function createWindChart() {
+  const id = 'wind';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const windValues = data.map(d => d.wind_speed);
+    const avg = windValues.reduce((a, b) => a + b, 0) / windValues.length;
+    const max = Math.max(...windValues);
+    const min = Math.min(...windValues);
+
+    document.getElementById('avgWind').textContent = avg.toFixed(1) + ' mph';
+    document.getElementById('maxWind').textContent = max.toFixed(1) + ' mph';
+    document.getElementById('minWind').textContent = min.toFixed(1) + ' mph';
+    document.getElementById('loadingWind').style.display = 'none';
+    document.getElementById('chartWindSection').style.display = 'block';
+
+    const ctx = document.getElementById('chartWind').getContext('2d');
+    charts.wind = new Chart(ctx, getLineChartConfig(dates, windValues, 'Wind Speed (mph)', 'rgba(14, 165, 233, 1)', 28, id));
+    updateChartAnnotations(charts.wind, id);
+  } catch (error) {
+    document.getElementById('loadingWind').style.display = 'none';
+    document.getElementById('errorWind').style.display = 'block';
+    document.getElementById('errorWind').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Humidity Chart
+async function createHumidityChart() {
+  const id = 'humid';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const humidValues = data.map(d => d.humidity);
+    const avg = humidValues.reduce((a, b) => a + b, 0) / humidValues.length;
+    const max = Math.max(...humidValues);
+    const min = Math.min(...humidValues);
+
+    document.getElementById('avgHumid').textContent = avg.toFixed(1) + '%';
+    document.getElementById('maxHumid').textContent = max.toFixed(1) + '%';
+    document.getElementById('minHumid').textContent = min.toFixed(1) + '%';
+    document.getElementById('loadingHumid').style.display = 'none';
+    document.getElementById('chartHumidSection').style.display = 'block';
+
+    const ctx = document.getElementById('chartHumid').getContext('2d');
+    charts.humid = new Chart(ctx, getLineChartConfig(dates, humidValues, 'Humidity (%)', 'rgba(34, 197, 94, 1)', 28, id));
+    updateChartAnnotations(charts.humid, id);
+  } catch (error) {
+    document.getElementById('loadingHumid').style.display = 'none';
+    document.getElementById('errorHumid').style.display = 'block';
+    document.getElementById('errorHumid').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Pressure Chart
+async function createPressureChart() {
+  const id = 'press';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const pressValues = data.map(d => d.pressure);
+    const avg = pressValues.reduce((a, b) => a + b, 0) / pressValues.length;
+    const max = Math.max(...pressValues);
+    const min = Math.min(...pressValues);
+
+    document.getElementById('avgPress').textContent = avg.toFixed(2) + ' inHg';
+    document.getElementById('maxPress').textContent = max.toFixed(2) + ' inHg';
+    document.getElementById('minPress').textContent = min.toFixed(2) + ' inHg';
+    document.getElementById('loadingPress').style.display = 'none';
+    document.getElementById('chartPressSection').style.display = 'block';
+
+    const ctx = document.getElementById('chartPress').getContext('2d');
+    charts.press = new Chart(ctx, getLineChartConfig(dates, pressValues, 'Pressure (inHg)', 'rgba(168, 85, 247, 1)', 28, id));
+    updateChartAnnotations(charts.press, id);
+  } catch (error) {
+    document.getElementById('loadingPress').style.display = 'none';
+    document.getElementById('errorPress').style.display = 'block';
+    document.getElementById('errorPress').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Extraterrestrial Radiation Chart
+async function createRAChart() {
+  const id = 'ra';
+  try {
+    const data = await fetchData(28);
+    if (!data || data.length === 0) throw new Error('No data available');
+
+    const dates = data.map(d => formatDate(d.date, 28));
+    const raValues = data.map(d => d.extraterrestrial_radiation);
+    const total = raValues.reduce((a, b) => a + b, 0);
+    const avg = total / raValues.length;
+    const max = Math.max(...raValues);
+
+    document.getElementById('totalRA').textContent = total.toFixed(1) + ' MJ/m²';
+    document.getElementById('avgRA').textContent = avg.toFixed(2) + ' MJ/m²';
+    document.getElementById('maxRA').textContent = max.toFixed(2) + ' MJ/m²';
+    document.getElementById('loadingRA').style.display = 'none';
+    document.getElementById('chartRASection').style.display = 'block';
+
+    const ctx = document.getElementById('chartRA').getContext('2d');
+    charts.ra = new Chart(ctx, getLineChartConfig(dates, raValues, 'Extraterrestrial Radiation (MJ/m²)', 'rgba(251, 146, 60, 1)', 28, id));
+    updateChartAnnotations(charts.ra, id);
+  } catch (error) {
+    document.getElementById('loadingRA').style.display = 'none';
+    document.getElementById('errorRA').style.display = 'block';
+    document.getElementById('errorRA').textContent = 'Error: ' + error.message;
+  }
+}
+
+// Export chart data to CSV
+function exportCSV(chartId) {
+  const chart = charts[chartId] || charts[chartId.toLowerCase()];
+  if (!chart) {
+    console.error('Chart not found:', chartId);
+    return;
+  }
+
+  const labels = chart.data.labels;
+  const datasets = chart.data.datasets;
+
+  // Build CSV content
+  let csv = 'Date';
+  datasets.forEach(ds => csv += ',' + ds.label);
+  csv += '\n';
+
+  labels.forEach((label, i) => {
+    csv += label;
+    datasets.forEach(ds => {
+      const value = ds.data[i];
+      csv += ',' + (value !== null && value !== undefined ? value : '');
+    });
+    csv += '\n';
+  });
+
+  // Download
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `chart_${chartId}_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Print chart
+function printChart(chartId) {
+  const chart = charts[chartId] || charts[chartId.toLowerCase()];
+  if (!chart) {
+    console.error('Chart not found:', chartId);
+    return;
+  }
+
+  const canvas = chart.canvas;
+  const imgData = canvas.toDataURL('image/png');
+
+  // Open print window
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Print Chart - ${chartId}</title>
+        <style>
+          body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: system-ui, sans-serif;
+          }
+          h2 { margin: 20px 0; }
+          img { max-width: 90%; height: auto; }
+          .timestamp { margin-top: 20px; font-size: 0.9em; color: #666; }
+          @media print {
+            body { padding: 20px; }
+          }
+        </style>
+      </head>
+      <body>
+        <h2>Weather & ET Dashboard - ${chartId}</h2>
+        <img src="${imgData}" />
+        <p class="timestamp">Generated: ${new Date().toLocaleString()}</p>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 250);
+}
+
+// Initialize all charts
+async function init() {
+  // Destroy existing charts before recreating them
+  Object.values(charts).forEach(chart => {
+    if (chart && typeof chart.destroy === 'function') {
+      chart.destroy();
+    }
+  });
+
+  await Promise.all([
+    createYearlyBalanceChart(),
+    createETChart(7),
+    createETChart(14),
+    createETChart(28),
+    createBalanceChart(7),
+    createBalanceChart(14),
+    createBalanceChart(28),
+    createRainfallChart(),
+    createTempChart(),
+    createSolarChart(),
+    createWindChart(),
+    createHumidityChart(),
+    createPressureChart()
+  ]);
+
+  renderAnalemma();
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  document.getElementById('updateTime').textContent = `Updated: ${timeStr}`;
+}
+
+// Load on page load
+document.title = `Weather & ET Dashboard v${APP_VERSION}`;
+document.getElementById('versionBadge').textContent = `v${APP_VERSION}`;
+init();
+
+// Auto-refresh every 5 minutes
+setInterval(init, 300000);
+</script>
+
+</body>
+</html>
